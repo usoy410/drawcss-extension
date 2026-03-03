@@ -1,13 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { scanProject } from './scanner';
-
-import { generateAgenticCode } from './agent';
+import { scanProject } from './scanner.js';
+import { generateAgenticCode } from './agent.js';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('DrawCSS Studio is active');
 
-    let disposable = vscode.commands.registerCommand('drawcss.openStudio', async () => {
+    const disposable = vscode.commands.registerCommand('drawcss.openStudio', async () => {
         const techStack = await scanProject();
 
         const panel = vscode.window.createWebviewPanel(
@@ -26,7 +25,7 @@ export function activate(context: vscode.ExtensionContext) {
         panel.webview.onDidReceiveMessage(
             async (message: any) => {
                 switch (message.command) {
-                    case 'submit':
+                    case 'submit': {
                         const displayFramework = techStack.framework === 'nextjs' ? 'Next.js' : techStack.framework.charAt(0).toUpperCase() + techStack.framework.slice(1);
                         const displayStyling = techStack.styling.charAt(0).toUpperCase() + techStack.styling.slice(1);
 
@@ -68,6 +67,7 @@ export function activate(context: vscode.ExtensionContext) {
                             vscode.window.showInformationMessage(`Agentic code saved to ${path.join(targetSubDir, fileName)}`);
                         }
                         return;
+                    }
                 }
             },
             undefined,
@@ -79,30 +79,39 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
-    // Basic HTML content for testing the bridge
+    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'webview.js'));
+    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'drawcss-extension.css'));
+    const cspSource = webview.cspSource;
+
     return `
         <!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data:; font-src ${cspSource};">
+            <title>DrawCSS Studio</title>
+            <link rel="stylesheet" href="${styleUri}">
             <style>
-                body { background: #0a0a0a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; }
-                button { background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; }
-                button:hover { background: #2563eb; }
-                .status { margin-top: 20px; font-size: 12px; opacity: 0.5; font-mono; }
+                body { margin: 0; padding: 0; overflow: hidden; background: #050505; color: white; }
+                #root { width: 100vw; height: 100vh; }
+                #debug-status { position: absolute; top: 10px; right: 10px; font-size: 10px; color: rgba(255,255,255,0.2); z-index: 1000; }
             </style>
         </head>
         <body>
-            <h1>DrawCSS Studio</h1>
-            <p>Ready to generate agentic code.</p>
-            <button onclick="submit()">Test Draw Submission</button>
-            <div class="status">Scanner: Connected</div>
+            <div id="debug-status">Initializing...</div>
+            <div id="root"></div>
             <script>
                 const vscode = acquireVsCodeApi();
-                function submit() {
-                    vscode.postMessage({ command: 'submit', data: 'placeholder_base64' });
-                }
+                window.vscode = vscode;
+                document.getElementById('debug-status').innerText = 'Bridge Ready. Loading Scripts...';
+                
+                window.onerror = function(msg, url, line, col, error) {
+                   document.getElementById('debug-status').innerText = 'Error: ' + msg;
+                   document.getElementById('debug-status').style.color = 'red';
+                };
             </script>
+            <script src="${scriptUri}"></script>
         </body>
         </html>
     `;

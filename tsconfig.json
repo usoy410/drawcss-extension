@@ -4,13 +4,27 @@
         "target": "ESNext",
         "outDir": "out",
         "lib": [
-            "ESNext"
+            "ESNext",
+            "DOM",
+            "DOM.Iterable"
         ],
         "sourceMap": true,
         "rootDir": "src",
         "strict": true,
-        "moduleResolution": "NodeNext"
+        "moduleResolution": "NodeNext",
+        "jsx": "react-jsx",
+        "baseUrl": ".",
+        "paths": {
+            "@/*": [
+                "src/webview/*"
+            ]
+        },
+        "skipLibCheck": true,
+        "allowSyntheticDefaultImports": true
     },
+    "include": [
+        "src/**/*"
+    ],
     "exclude": [
         "node_modules",
         ".vscode-test"

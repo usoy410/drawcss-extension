@@ -3,6 +3,7 @@
     "displayName": "DrawCSS Studio",
     "description": "Convert drawings to agentic code directly in VS Code.",
     "version": "0.0.1",
+    "type": "module",
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -25,14 +26,30 @@
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src --ext ts",
-        "test": "node ./out/test/runTest.js"
+        "test": "node ./out/test/runTest.js",
+        "build:webview": "vite build",
+        "dev:webview": "vite"
     },
     "devDependencies": {
+        "@google/generative-ai": "^0.24.1",
+        "@tailwindcss/postcss": "^4.2.1",
         "@types/node": "20.x",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
         "@types/vscode": "^1.109.0",
         "@typescript-eslint/eslint-plugin": "^8.56.1",
         "@typescript-eslint/parser": "^8.56.1",
+        "@vitejs/plugin-react": "^5.1.4",
+        "clsx": "^2.1.1",
         "eslint": "^8.56.0",
-        "typescript": "^5.3.3"
+        "lucide-react": "^0.576.0",
+        "react": "^19.2.4",
+        "react-dom": "^19.2.4",
+        "tailwind-merge": "^3.5.0",
+        "typescript": "^5.3.3",
+        "vite": "^7.3.1"
+    },
+    "dependencies": {
+        "dotenv": "^17.3.1"
     }
 }
