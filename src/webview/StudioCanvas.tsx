@@ -10,7 +10,6 @@ import {
     RotateCcw,
     Monitor,
     Smartphone,
-    ChevronLeft,
     X,
     CornerDownLeft,
     Send,
@@ -26,13 +25,14 @@ import {
     Link as LinkIcon,
     MoveUpRight,
     X as XIcon,
+    Edit2,
 } from "lucide-react";
 import { cn } from "./lib/utils.js";
 
 import { Page, Wiring } from "./types/project.js";
 
 interface StudioCanvasProps {
-    onSubmit: (base64: string) => void;
+    onSubmit: (base64: string, instructions?: string) => void;
     loading?: boolean;
     pages: Page[];
     currentPageIndex: number;
@@ -40,6 +40,7 @@ interface StudioCanvasProps {
     onPageChange: (index: number) => void;
     onAddPage: (name: string) => void;
     onDeletePage: (id: string) => void;
+    onRenamePage: (id: string, name: string) => void;
     onSaveState: (shapes: Shape[], raster: string) => void;
     onAddWiring: (elementId: string, targetPageId: string) => void;
 }
@@ -73,9 +74,11 @@ export function StudioCanvas({
     onPageChange,
     onAddPage,
     onDeletePage,
+    onRenamePage,
     onSaveState,
     onAddWiring
 }: StudioCanvasProps) {
+    const isFirstRender = useRef(true);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const [activeTool, setActiveTool] = useState<Tool>("pencil");
@@ -94,9 +97,13 @@ export function StudioCanvas({
     const [previewImageData, setPreviewImageData] = useState<ImageData | null>(null);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
     const [showAddPageModal, setShowAddPageModal] = useState(false);
+    const [showGenerateModal, setShowGenerateModal] = useState(false);
+    const [additionalInstructions, setAdditionalInstructions] = useState("");
     const [newPageName, setNewPageName] = useState("");
 
     const [shapes, setShapes] = useState<Shape[]>([]);
+    const [editingPageId, setEditingPageId] = useState<string | null>(null);
+    const [editingPageName, setEditingPageName] = useState("");
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [dragOffset, setDragOffset] = useState<{ x: number, y: number } | null>(null);
     const gridSize = 20;
@@ -116,7 +123,7 @@ export function StudioCanvas({
         if (!ctx || !canvas || !offscreen) return;
 
         // Clear and draw offscreen (raster)
-        ctx.fillStyle = "#0a0a0a";
+        ctx.fillStyle = "#121212";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(offscreen, 0, 0);
 
@@ -163,7 +170,9 @@ export function StudioCanvas({
         newHistory.push(newStep);
         setHistory(newHistory);
         setHistoryStep(newHistory.length - 1);
-    }, [history, historyStep, shapes]);
+
+        onSaveState(newStep.shapes, newStep.raster);
+    }, [history, historyStep, shapes, onSaveState]);
 
     const deleteSelected = useCallback(() => {
         if (!selectedId) return;
@@ -173,6 +182,40 @@ export function StudioCanvas({
         saveToHistory(newShapes);
         renderCanvas(newShapes);
     }, [selectedId, shapes, saveToHistory, renderCanvas]);
+
+    // Handle page switching
+    useEffect(() => {
+        const page = pages[currentPageIndex];
+        if (!page) return;
+
+        setShapes(page.shapes || []);
+        setHistory([]);
+        setHistoryStep(-1);
+
+        const canvas = canvasRef.current;
+        const offscreen = offscreenCanvasRef.current;
+        const offCtx = offscreen?.getContext("2d");
+        const ctx = canvas?.getContext("2d");
+
+        if (offCtx && offscreen && ctx && canvas) {
+            offCtx.fillStyle = "#121212";
+            offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+            ctx.fillStyle = "#121212";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (page.raster) {
+                const img = new Image();
+                img.onload = () => {
+                    offCtx.drawImage(img, 0, 0);
+                    ctx.drawImage(img, 0, 0);
+                    renderCanvas(page.shapes || []);
+                };
+                img.src = page.raster;
+            } else {
+                renderCanvas(page.shapes || []);
+            }
+        }
+    }, [currentPageIndex, pages[currentPageIndex]?.id]);
 
     // Handle keyboard for panning and deletion
     useEffect(() => {
@@ -212,14 +255,14 @@ export function StudioCanvas({
 
             const offCtx = offscreen.getContext("2d");
             if (offCtx) {
-                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillStyle = "#121212";
                 offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
             }
 
             canvas.width = canvasSize.width;
             canvas.height = canvasSize.height;
 
-            ctx.fillStyle = "#0a0a0a";
+            ctx.fillStyle = "#121212";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             if (historyStep >= 0) {
@@ -282,7 +325,7 @@ export function StudioCanvas({
         if (offCtx && offscreen) {
             const img = new Image();
             img.onload = () => {
-                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillStyle = "#121212";
                 offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
                 offCtx.drawImage(img, 0, 0);
                 renderCanvas(prevStep.shapes);
@@ -302,7 +345,7 @@ export function StudioCanvas({
         if (offCtx && offscreen) {
             const img = new Image();
             img.onload = () => {
-                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillStyle = "#121212";
                 offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
                 offCtx.drawImage(img, 0, 0);
                 renderCanvas(nextStep.shapes);
@@ -317,15 +360,16 @@ export function StudioCanvas({
         const offscreen = offscreenCanvasRef.current;
         const offCtx = offscreen?.getContext("2d");
         if (ctx && canvas && offCtx && offscreen) {
-            ctx.fillStyle = "#0a0a0a";
+            ctx.fillStyle = "#121212";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            offCtx.fillStyle = "#0a0a0a";
+            offCtx.fillStyle = "#121212";
             offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
             setHistory([]);
             setHistoryStep(-1);
             setShapes([]);
             setSelectedId(null);
             setShowDiscardModal(false);
+            onSaveState([], "#121212");
         }
     };
 
@@ -408,7 +452,7 @@ export function StudioCanvas({
         if (offCtx && (activeTool === "pencil" || activeTool === "eraser")) {
             offCtx.beginPath();
             offCtx.moveTo(startPos.x, startPos.y);
-            offCtx.strokeStyle = activeTool === "eraser" ? "#0a0a0a" : "white";
+            offCtx.strokeStyle = activeTool === "eraser" ? "#121212" : "white";
             offCtx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
             offCtx.lineCap = "round";
             offCtx.lineJoin = "round";
@@ -433,7 +477,7 @@ export function StudioCanvas({
             return;
         }
 
-        ctx.strokeStyle = activeTool === "eraser" ? "#0a0a0a" : "white";
+        ctx.strokeStyle = activeTool === "eraser" ? "#121212" : "white";
         ctx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
         setIsDrawing(true);
     };
@@ -582,32 +626,72 @@ export function StudioCanvas({
         <div className="flex flex-col h-screen bg-[#050505] overflow-hidden">
             <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md z-20">
                 <div className="flex items-center gap-4">
-                    <div className="p-2 hover:bg-white/5 rounded-full transition-colors group">
-                        <ChevronLeft className="w-5 h-5 text-white/40 group-hover:text-white" />
-                    </div>
-                    <div className="h-6 w-px bg-white/10" />
                     <h1 className="text-sm font-medium tracking-tight text-white/80">Drawing Studio <span className="text-white/20 font-mono text-xs">v1.2</span></h1>
                 </div>
 
                 {/* Pages List in Top Left (relative to canvas or fixed in header) - Moving to absolute overlay for better positioning */}
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar max-w-[400px] px-2">
                     {pages.map((page, i) => (
-                        <button
-                            key={page.id}
-                            onClick={() => onPageChange(i)}
-                            className={cn(
-                                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap",
-                                currentPageIndex === i
-                                    ? "bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.2)]"
-                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
+                        <div key={page.id} className="relative group/page">
+                            {editingPageId === page.id ? (
+                                <input
+                                    autoFocus
+                                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 border border-blue-500/50 text-blue-400 outline-none w-[100px]"
+                                    value={editingPageName}
+                                    onChange={(e) => setEditingPageName(e.target.value)}
+                                    onBlur={() => {
+                                        if (editingPageName.trim() && editingPageName !== page.name) {
+                                            onRenamePage(page.id, editingPageName.trim());
+                                        }
+                                        setEditingPageId(null);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                            if (editingPageName.trim()) {
+                                                onRenamePage(page.id, editingPageName.trim());
+                                            }
+                                            setEditingPageId(null);
+                                        }
+                                        if (e.key === "Escape") setEditingPageId(null);
+                                    }}
+                                />
+                            ) : (
+                                <button
+                                    onClick={() => onPageChange(i)}
+                                    className={cn(
+                                        "flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap group/tab",
+                                        currentPageIndex === i
+                                            ? "bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.2)]"
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
+                                    )}
+                                >
+                                    <div className={cn(
+                                        "w-1 h-1 rounded-full",
+                                        currentPageIndex === i ? "bg-blue-400" : "bg-white/20"
+                                    )} />
+                                    <span>{page.name}</span>
+                                    <Edit2
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingPageId(page.id);
+                                            setEditingPageName(page.name);
+                                        }}
+                                        className="w-3 h-3 opacity-0 group-hover/tab:opacity-100 transition-opacity hover:text-white"
+                                    />
+                                </button>
                             )}
-                        >
-                            <div className={cn(
-                                "w-1 h-1 rounded-full",
-                                currentPageIndex === i ? "bg-blue-400" : "bg-white/20"
-                            )} />
-                            {page.name}
-                        </button>
+                            {pages.length > 1 && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDeletePage(page.id);
+                                    }}
+                                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/page:opacity-100 transition-opacity z-30"
+                                >
+                                    <X className="w-2 h-2" />
+                                </button>
+                            )}
+                        </div>
                     ))}
                     <button
                         onClick={() => setShowAddPageModal(true)}
@@ -644,7 +728,7 @@ export function StudioCanvas({
                     </div>
 
                     <button
-                        onClick={() => canvasRef.current && onSubmit(canvasRef.current.toDataURL("image/png"))}
+                        onClick={() => setShowGenerateModal(true)}
                         disabled={loading || historyStep < 0}
                         className={cn(
                             "flex items-center gap-2 px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all",
@@ -762,7 +846,7 @@ export function StudioCanvas({
                 </aside>
 
                 <main onWheel={handleWheel} className="flex-1 flex items-center justify-center p-12 overflow-hidden bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:20px_20px]">
-                    <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} className="shadow-[0_0_100px_rgba(255,255,255,0.05)] border border-white/10 rounded-lg shrink-0 origin-center relative">
+                    <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} className="shadow-[0_0_100px_rgba(255,255,255,0.1)] border-2 border-white/25 rounded-lg shrink-0 origin-center relative">
                         <canvas
                             ref={canvasRef}
                             onMouseDown={startAction}
@@ -772,7 +856,7 @@ export function StudioCanvas({
                             onTouchStart={startAction}
                             onTouchMove={moveAction}
                             onTouchEnd={endAction}
-                            className="bg-[#0a0a0a] touch-none cursor-crosshair block"
+                            className="bg-[#121212] touch-none cursor-crosshair block"
                         />
 
                         {/* Contextual Delete Button */}
@@ -1105,6 +1189,57 @@ export function StudioCanvas({
                     </div>
                 )
             }
+
+            {showGenerateModal && (
+                <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="w-full max-w-md glass border border-white/10 rounded-2xl p-6 shadow-2xl scale-in-center overflow-hidden text-left">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                <Send className="w-5 h-5 text-blue-400" />
+                                Custom Instructions
+                            </h3>
+                            <button
+                                onClick={() => setShowGenerateModal(false)}
+                                className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+                            >
+                                <X className="w-5 h-5 text-white/40" />
+                            </button>
+                        </div>
+
+                        <p className="text-sm text-white/60 mb-4">
+                            Tell the AI any specific requirements for this generation (e.g., "Use deep purple colors", "Add a contact form", "Make it mobile-responsive").
+                        </p>
+
+                        <textarea
+                            autoFocus
+                            value={additionalInstructions}
+                            onChange={(e) => setAdditionalInstructions(e.target.value)}
+                            placeholder="Add instructions (optional)..."
+                            className="w-full h-32 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 transition-all resize-none mb-6"
+                        />
+
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => setShowGenerateModal(false)}
+                                className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-white/60 hover:text-white hover:bg-white/5 transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (canvasRef.current) {
+                                        onSubmit(canvasRef.current.toDataURL("image/png"), additionalInstructions);
+                                        setShowGenerateModal(false);
+                                    }
+                                }}
+                                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-500 shadow-lg shadow-blue-600/20 transition-all active:scale-95"
+                            >
+                                Generate
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

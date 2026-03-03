@@ -18,7 +18,18 @@
                 "command": "drawcss.openStudio",
                 "title": "DrawCSS: Open Studio"
             }
-        ]
+        ],
+        "configuration": {
+            "title": "DrawCSS",
+            "properties": {
+                "drawcss.apiKey": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Your Google Gemini API Key for code generation.",
+                    "scope": "application"
+                }
+            }
+        }
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
@@ -31,7 +42,6 @@
         "dev:webview": "vite"
     },
     "devDependencies": {
-        "@google/generative-ai": "^0.24.1",
         "@tailwindcss/postcss": "^4.2.1",
         "@types/node": "20.x",
         "@types/react": "^19.2.14",
@@ -50,6 +60,7 @@
         "vite": "^7.3.1"
     },
     "dependencies": {
+        "@google/generative-ai": "^0.24.1",
         "dotenv": "^17.3.1"
     }
 }

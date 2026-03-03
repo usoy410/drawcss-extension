@@ -1,9 +1,10 @@
 "use client";
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useRef, useState, useEffect, useCallback } from "react";
-import { Pencil, Eraser, Type, Undo2, Redo2, RotateCcw, ChevronLeft, X, CornerDownLeft, Send, Square, Circle as CircleIcon, Minus, Shapes, MousePointer2, Plus, FileText, Link as LinkIcon, X as XIcon, } from "lucide-react";
+import { Pencil, Eraser, Type, Undo2, Redo2, RotateCcw, X, CornerDownLeft, Send, Square, Circle as CircleIcon, Minus, Shapes, MousePointer2, Plus, FileText, Link as LinkIcon, X as XIcon, Edit2, } from "lucide-react";
 import { cn } from "./lib/utils.js";
-export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirings, onPageChange, onAddPage, onDeletePage, onSaveState, onAddWiring }) {
+export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirings, onPageChange, onAddPage, onDeletePage, onRenamePage, onSaveState, onAddWiring }) {
+    const isFirstRender = useRef(true);
     const canvasRef = useRef(null);
     const offscreenCanvasRef = useRef(null);
     const [activeTool, setActiveTool] = useState("pencil");
@@ -24,6 +25,8 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
     const [showAddPageModal, setShowAddPageModal] = useState(false);
     const [newPageName, setNewPageName] = useState("");
     const [shapes, setShapes] = useState([]);
+    const [editingPageId, setEditingPageId] = useState(null);
+    const [editingPageName, setEditingPageName] = useState("");
     const [selectedId, setSelectedId] = useState(null);
     const [dragOffset, setDragOffset] = useState(null);
     const gridSize = 20;
@@ -40,7 +43,7 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         if (!ctx || !canvas || !offscreen)
             return;
         // Clear and draw offscreen (raster)
-        ctx.fillStyle = "#0a0a0a";
+        ctx.fillStyle = "#121212";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(offscreen, 0, 0);
         const targetShapes = currentShapes || shapes;
@@ -86,7 +89,8 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         newHistory.push(newStep);
         setHistory(newHistory);
         setHistoryStep(newHistory.length - 1);
-    }, [history, historyStep, shapes]);
+        onSaveState(newStep.shapes, newStep.raster);
+    }, [history, historyStep, shapes, onSaveState]);
     const deleteSelected = useCallback(() => {
         if (!selectedId)
             return;
@@ -96,6 +100,37 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         saveToHistory(newShapes);
         renderCanvas(newShapes);
     }, [selectedId, shapes, saveToHistory, renderCanvas]);
+    // Handle page switching
+    useEffect(() => {
+        const page = pages[currentPageIndex];
+        if (!page)
+            return;
+        setShapes(page.shapes || []);
+        setHistory([]);
+        setHistoryStep(-1);
+        const canvas = canvasRef.current;
+        const offscreen = offscreenCanvasRef.current;
+        const offCtx = offscreen?.getContext("2d");
+        const ctx = canvas?.getContext("2d");
+        if (offCtx && offscreen && ctx && canvas) {
+            offCtx.fillStyle = "#121212";
+            offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+            ctx.fillStyle = "#121212";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (page.raster) {
+                const img = new Image();
+                img.onload = () => {
+                    offCtx.drawImage(img, 0, 0);
+                    ctx.drawImage(img, 0, 0);
+                    renderCanvas(page.shapes || []);
+                };
+                img.src = page.raster;
+            }
+            else {
+                renderCanvas(page.shapes || []);
+            }
+        }
+    }, [currentPageIndex, pages[currentPageIndex]?.id]);
     // Handle keyboard for panning and deletion
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -135,12 +170,12 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
             offscreen.height = canvasSize.height;
             const offCtx = offscreen.getContext("2d");
             if (offCtx) {
-                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillStyle = "#121212";
                 offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
             }
             canvas.width = canvasSize.width;
             canvas.height = canvasSize.height;
-            ctx.fillStyle = "#0a0a0a";
+            ctx.fillStyle = "#121212";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             if (historyStep >= 0) {
                 const img = new Image();
@@ -197,7 +232,7 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         if (offCtx && offscreen) {
             const img = new Image();
             img.onload = () => {
-                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillStyle = "#121212";
                 offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
                 offCtx.drawImage(img, 0, 0);
                 renderCanvas(prevStep.shapes);
@@ -216,7 +251,7 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         if (offCtx && offscreen) {
             const img = new Image();
             img.onload = () => {
-                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillStyle = "#121212";
                 offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
                 offCtx.drawImage(img, 0, 0);
                 renderCanvas(nextStep.shapes);
@@ -230,15 +265,16 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         const offscreen = offscreenCanvasRef.current;
         const offCtx = offscreen?.getContext("2d");
         if (ctx && canvas && offCtx && offscreen) {
-            ctx.fillStyle = "#0a0a0a";
+            ctx.fillStyle = "#121212";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            offCtx.fillStyle = "#0a0a0a";
+            offCtx.fillStyle = "#121212";
             offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
             setHistory([]);
             setHistoryStep(-1);
             setShapes([]);
             setSelectedId(null);
             setShowDiscardModal(false);
+            onSaveState([], "#121212");
         }
     };
     const getCoordinates = (e, shouldSnap = false) => {
@@ -315,7 +351,7 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         if (offCtx && (activeTool === "pencil" || activeTool === "eraser")) {
             offCtx.beginPath();
             offCtx.moveTo(startPos.x, startPos.y);
-            offCtx.strokeStyle = activeTool === "eraser" ? "#0a0a0a" : "white";
+            offCtx.strokeStyle = activeTool === "eraser" ? "#121212" : "white";
             offCtx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
             offCtx.lineCap = "round";
             offCtx.lineJoin = "round";
@@ -338,7 +374,7 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
             }
             return;
         }
-        ctx.strokeStyle = activeTool === "eraser" ? "#0a0a0a" : "white";
+        ctx.strokeStyle = activeTool === "eraser" ? "#121212" : "white";
         ctx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
         setIsDrawing(true);
     };
@@ -473,9 +509,30 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
             }));
         }
     };
-    return (_jsxs("div", { className: "flex flex-col h-screen bg-[#050505] overflow-hidden", children: [_jsxs("header", { className: "flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md z-20", children: [_jsxs("div", { className: "flex items-center gap-4", children: [_jsx("div", { className: "p-2 hover:bg-white/5 rounded-full transition-colors group", children: _jsx(ChevronLeft, { className: "w-5 h-5 text-white/40 group-hover:text-white" }) }), _jsx("div", { className: "h-6 w-px bg-white/10" }), _jsxs("h1", { className: "text-sm font-medium tracking-tight text-white/80", children: ["Drawing Studio ", _jsx("span", { className: "text-white/20 font-mono text-xs", children: "v1.2" })] })] }), _jsxs("div", { className: "flex items-center gap-2 overflow-x-auto custom-scrollbar max-w-[400px] px-2", children: [pages.map((page, i) => (_jsxs("button", { onClick: () => onPageChange(i), className: cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap", currentPageIndex === i
-                                    ? "bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.2)]"
-                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"), children: [_jsx("div", { className: cn("w-1 h-1 rounded-full", currentPageIndex === i ? "bg-blue-400" : "bg-white/20") }), page.name] }, page.id))), _jsx("button", { onClick: () => setShowAddPageModal(true), className: "p-1.5 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5 rounded-lg transition-all", title: "Add New Page", children: _jsx(Plus, { className: "w-3.5 h-3.5" }) })] }), _jsxs("div", { className: "flex items-center gap-4", children: [_jsxs("div", { className: "flex items-center gap-2 glass px-3 py-1.5 rounded-xl border border-white/5 bg-white/5", children: [_jsx("input", { type: "number", value: canvasSize.width, onChange: (e) => {
+    return (_jsxs("div", { className: "flex flex-col h-screen bg-[#050505] overflow-hidden", children: [_jsxs("header", { className: "flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md z-20", children: [_jsx("div", { className: "flex items-center gap-4", children: _jsxs("h1", { className: "text-sm font-medium tracking-tight text-white/80", children: ["Drawing Studio ", _jsx("span", { className: "text-white/20 font-mono text-xs", children: "v1.2" })] }) }), _jsxs("div", { className: "flex items-center gap-2 overflow-x-auto custom-scrollbar max-w-[400px] px-2", children: [pages.map((page, i) => (_jsxs("div", { className: "relative group/page", children: [editingPageId === page.id ? (_jsx("input", { autoFocus: true, className: "px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 border border-blue-500/50 text-blue-400 outline-none w-[100px]", value: editingPageName, onChange: (e) => setEditingPageName(e.target.value), onBlur: () => {
+                                            if (editingPageName.trim() && editingPageName !== page.name) {
+                                                onRenamePage(page.id, editingPageName.trim());
+                                            }
+                                            setEditingPageId(null);
+                                        }, onKeyDown: (e) => {
+                                            if (e.key === "Enter") {
+                                                if (editingPageName.trim()) {
+                                                    onRenamePage(page.id, editingPageName.trim());
+                                                }
+                                                setEditingPageId(null);
+                                            }
+                                            if (e.key === "Escape")
+                                                setEditingPageId(null);
+                                        } })) : (_jsxs("button", { onClick: () => onPageChange(i), className: cn("flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap group/tab", currentPageIndex === i
+                                            ? "bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.2)]"
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"), children: [_jsx("div", { className: cn("w-1 h-1 rounded-full", currentPageIndex === i ? "bg-blue-400" : "bg-white/20") }), _jsx("span", { children: page.name }), _jsx(Edit2, { onClick: (e) => {
+                                                    e.stopPropagation();
+                                                    setEditingPageId(page.id);
+                                                    setEditingPageName(page.name);
+                                                }, className: "w-3 h-3 opacity-0 group-hover/tab:opacity-100 transition-opacity hover:text-white" })] })), pages.length > 1 && (_jsx("button", { onClick: (e) => {
+                                            e.stopPropagation();
+                                            onDeletePage(page.id);
+                                        }, className: "absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/page:opacity-100 transition-opacity z-30", children: _jsx(X, { className: "w-2 h-2" }) }))] }, page.id))), _jsx("button", { onClick: () => setShowAddPageModal(true), className: "p-1.5 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5 rounded-lg transition-all", title: "Add New Page", children: _jsx(Plus, { className: "w-3.5 h-3.5" }) })] }), _jsxs("div", { className: "flex items-center gap-4", children: [_jsxs("div", { className: "flex items-center gap-2 glass px-3 py-1.5 rounded-xl border border-white/5 bg-white/5", children: [_jsx("input", { type: "number", value: canvasSize.width, onChange: (e) => {
                                             const val = parseInt(e.target.value) || 0;
                                             setCanvasSize(prev => ({ ...prev, width: Math.max(200, val) }));
                                         }, className: "w-12 bg-transparent text-[10px] font-mono text-white/60 focus:text-white focus:outline-none text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none", title: "Canvas Width" }), _jsx("span", { className: "text-[10px] text-white/20 font-mono", children: "x" }), _jsx("input", { type: "number", value: canvasSize.height, onChange: (e) => {
@@ -516,7 +573,7 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
                                                             setIsShapeModalOpen(false);
                                                         }, className: cn("flex flex-col items-center gap-2 p-3 rounded-xl border transition-all", selectedShape === shape.id && activeTool === "shape"
                                                             ? "bg-blue-600/20 border-blue-500/50 text-blue-400"
-                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white"), children: [_jsx(shape.icon, { className: "w-5 h-5" }), _jsx("span", { className: "text-[9px] font-medium uppercase tracking-wider", children: shape.label })] }, shape.id))) })] }) })), activeTool === tool.id && tool.slider && showSettings && (_jsx("div", { className: "absolute left-full ml-4 top-0 p-4 glass rounded-2xl border border-white/10 shadow-2xl animate-in fade-in slide-in-from-left-2 z-30 min-w-[120px]", children: _jsxs("div", { className: "flex flex-col gap-3", children: [_jsx("span", { className: "text-[10px] font-bold uppercase tracking-widest text-white/40", children: "Tool Size" }), _jsx("input", { type: "range", min: "1", max: "100", step: "1", value: brushSize, onChange: (e) => setBrushSize(parseInt(e.target.value)), className: "w-full h-1.5 appearance-none bg-white/5 rounded-full border border-white/5 cursor-pointer" }), _jsxs("div", { className: "flex justify-between items-center", children: [_jsxs("span", { className: "text-[10px] font-mono text-white/30", children: [brushSize, "px"] }), _jsx("button", { onClick: () => setShowSettings(false), className: "text-[10px] text-blue-400 hover:text-blue-300 uppercase tracking-wider", children: "Done" })] })] }) }))] }, tool.id))), _jsx("div", { className: "h-px bg-white/10 mx-2" })] }), _jsx("main", { onWheel: handleWheel, className: "flex-1 flex items-center justify-center p-12 overflow-hidden bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:20px_20px]", children: _jsxs("div", { style: { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }, className: "shadow-[0_0_100px_rgba(255,255,255,0.05)] border border-white/10 rounded-lg shrink-0 origin-center relative", children: [_jsx("canvas", { ref: canvasRef, onMouseDown: startAction, onMouseMove: moveAction, onMouseUp: endAction, onMouseLeave: endAction, onTouchStart: startAction, onTouchMove: moveAction, onTouchEnd: endAction, className: "bg-[#0a0a0a] touch-none cursor-crosshair block" }), selectedId && shapes.find(s => s.id === selectedId) && (() => {
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white"), children: [_jsx(shape.icon, { className: "w-5 h-5" }), _jsx("span", { className: "text-[9px] font-medium uppercase tracking-wider", children: shape.label })] }, shape.id))) })] }) })), activeTool === tool.id && tool.slider && showSettings && (_jsx("div", { className: "absolute left-full ml-4 top-0 p-4 glass rounded-2xl border border-white/10 shadow-2xl animate-in fade-in slide-in-from-left-2 z-30 min-w-[120px]", children: _jsxs("div", { className: "flex flex-col gap-3", children: [_jsx("span", { className: "text-[10px] font-bold uppercase tracking-widest text-white/40", children: "Tool Size" }), _jsx("input", { type: "range", min: "1", max: "100", step: "1", value: brushSize, onChange: (e) => setBrushSize(parseInt(e.target.value)), className: "w-full h-1.5 appearance-none bg-white/5 rounded-full border border-white/5 cursor-pointer" }), _jsxs("div", { className: "flex justify-between items-center", children: [_jsxs("span", { className: "text-[10px] font-mono text-white/30", children: [brushSize, "px"] }), _jsx("button", { onClick: () => setShowSettings(false), className: "text-[10px] text-blue-400 hover:text-blue-300 uppercase tracking-wider", children: "Done" })] })] }) }))] }, tool.id))), _jsx("div", { className: "h-px bg-white/10 mx-2" })] }), _jsx("main", { onWheel: handleWheel, className: "flex-1 flex items-center justify-center p-12 overflow-hidden bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:20px_20px]", children: _jsxs("div", { style: { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }, className: "shadow-[0_0_100px_rgba(255,255,255,0.1)] border-2 border-white/25 rounded-lg shrink-0 origin-center relative", children: [_jsx("canvas", { ref: canvasRef, onMouseDown: startAction, onMouseMove: moveAction, onMouseUp: endAction, onMouseLeave: endAction, onTouchStart: startAction, onTouchMove: moveAction, onTouchEnd: endAction, className: "bg-[#121212] touch-none cursor-crosshair block" }), selectedId && shapes.find(s => s.id === selectedId) && (() => {
                                     const s = shapes.find(shape => shape.id === selectedId);
                                     let bx = s.x, by = s.y, bw = s.width || 0, bh = s.height || 0;
                                     if (s.type === "circle" && s.radius) {
