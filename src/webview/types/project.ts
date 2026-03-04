@@ -1,23 +1,17 @@
 import { Shape } from "@/StudioCanvas.js";
 
-export interface Page {
+export interface ComponentDesign {
     id: string;
     name: string;
     shapes: Shape[];
     raster: string; // base64
 }
 
-export interface Wiring {
-    sourcePageId: string;
-    sourceElementId: string;
-    targetPageId: string;
-}
 
 export interface Project {
     id: string;
     name: string;
-    pages: Page[];
-    wirings: Wiring[];
+    components: ComponentDesign[];
     settings: {
         framework: string;
         styling: string;

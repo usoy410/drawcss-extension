@@ -2,8 +2,42 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { scanProject } from './scanner.js';
 import { generateAgenticCode } from './agent.js';
+let lastGenerationSession = null;
 export function activate(context) {
     console.log('DrawCSS Studio is active');
+    // Register Undo command
+    const undoCommand = vscode.commands.registerCommand('drawcss.undoLastGeneration', async () => {
+        if (!lastGenerationSession) {
+            vscode.window.showInformationMessage("No generation session to undo.");
+            return;
+        }
+        try {
+            // 1. Delete created files
+            for (const filePath of lastGenerationSession.createdFiles) {
+                try {
+                    await vscode.workspace.fs.delete(vscode.Uri.file(filePath));
+                }
+                catch (e) {
+                    console.error(`Failed to delete ${filePath}:`, e);
+                }
+            }
+            // 2. Restore modified files from backups
+            for (const session of lastGenerationSession.backups) {
+                try {
+                    await vscode.workspace.fs.copy(vscode.Uri.file(session.backup), vscode.Uri.file(session.original), { overwrite: true });
+                }
+                catch (e) {
+                    console.error(`Failed to restore ${session.original}:`, e);
+                }
+            }
+            vscode.window.showInformationMessage("Generation undone successfully.");
+            lastGenerationSession = null;
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Rollback failed: ${error.message}`);
+        }
+    });
+    context.subscriptions.push(undoCommand);
     const disposable = vscode.commands.registerCommand('drawcss.openStudio', async () => {
         // Check for API Key first to guide the user
         const config = vscode.workspace.getConfiguration('drawcss');
@@ -37,6 +71,10 @@ export function activate(context) {
                     await saveDesignState(message.data);
                     break;
                 }
+                case 'revert': {
+                    await vscode.commands.executeCommand('drawcss.undoLastGeneration');
+                    break;
+                }
                 case 'submit': {
                     panel.webview.postMessage({ command: 'status', text: 'Scanning project context...' });
                     // const techStack = await scanProject(); // This line is moved up in the original code, but the instruction implies it's here. Let's assume the original code had it here and the instruction is adding the status message before it.
@@ -45,8 +83,11 @@ export function activate(context) {
                     const displayStyling = techStack.styling.charAt(0).toUpperCase() + techStack.styling.slice(1);
                     vscode.window.showInformationMessage(`Drawing received! Tech stack: ${displayFramework} + ${displayStyling}`);
                     // 1. Generate Agentic Code
-                    const techStackWithNav = { ...techStack, navigation: message.navigation };
-                    const result = await generateAgenticCode(message.data, techStackWithNav);
+                    const techStackContext = {
+                        ...techStack,
+                        additionalInstructions: message.additionalInstructions
+                    };
+                    const result = await generateAgenticCode(message.data, techStackContext);
                     if (result.thoughts) {
                         panel.webview.postMessage({ command: 'thoughts', text: result.thoughts });
                     }
@@ -72,26 +113,41 @@ export function activate(context) {
                             catch (e) {
                                 console.error(`Error creating directory ${dirPath}:`, e);
                             }
-                            // Avoid overwriting fixed patterns like page.tsx unless intentional
-                            const isFixedPattern = fileName === 'page.tsx' || fileName === 'layout.tsx' || fileName === 'index.html';
-                            if (!isFixedPattern) {
-                                let counter = 1;
-                                const ext = path.extname(fileName);
-                                const base = path.basename(fileName, ext);
-                                let exists = true;
-                                while (exists) {
-                                    try {
-                                        await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
-                                        fileName = `${base}${counter}${ext}`;
-                                        filePath = path.join(rootPath, targetSubDir, fileName);
-                                        counter++;
-                                    }
-                                    catch {
-                                        exists = false;
-                                    }
+                            // Overwrite Protection for all files (prevent accidental loss)
+                            try {
+                                const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
+                                if (stat.size > 0) {
+                                    const originalName = fileName;
+                                    const ext = path.extname(fileName);
+                                    const base = path.basename(fileName, ext);
+                                    fileName = `${base}-${Date.now()}${ext}`;
+                                    filePath = path.join(rootPath, targetSubDir, fileName);
+                                    vscode.window.showWarningMessage(`File conflict: ${originalName} already exists. Created ${fileName} instead.`);
                                 }
                             }
+                            catch {
+                                // File doesn't exist, safe to create
+                            }
                             const fileUri = vscode.Uri.file(filePath);
+                            // ROLLBACK: Track session
+                            if (!lastGenerationSession) {
+                                lastGenerationSession = { createdFiles: [], backups: [] };
+                            }
+                            try {
+                                const stat = await vscode.workspace.fs.stat(fileUri);
+                                if (stat.type === vscode.FileType.File) {
+                                    // Backup existing file before overwrite
+                                    const backupDir = path.join(rootPath, '.drawcss', 'backups', Date.now().toString());
+                                    const backupPath = path.join(backupDir, fileName);
+                                    await vscode.workspace.fs.createDirectory(vscode.Uri.file(backupDir));
+                                    await vscode.workspace.fs.copy(fileUri, vscode.Uri.file(backupPath));
+                                    lastGenerationSession.backups.push({ original: filePath, backup: backupPath });
+                                }
+                            }
+                            catch {
+                                // File doesn't exist, it's a new creation
+                                lastGenerationSession.createdFiles.push(filePath);
+                            }
                             await vscode.workspace.fs.writeFile(fileUri, Buffer.from(fileItem.code));
                             createdFilesInfo.push({ path: path.join(targetSubDir, fileName), name: fileName });
                             // Prioritize opening page.tsx, index.html, or the first file
@@ -109,7 +165,7 @@ export function activate(context) {
                             `- Styling: ${displayStyling}\n` +
                             `- Architecture: Modular Components\n`;
                         await vscode.workspace.fs.writeFile(vscode.Uri.file(path.join(rootPath, 'GENERATION_REPORT.md')), Buffer.from(reportContent));
-                        panel.webview.postMessage({ command: 'complete', summary: result.thoughts });
+                        panel.webview.postMessage({ command: 'complete', summary: result.thoughts, canRollback: true });
                         // 3. Open the "main" file
                         if (mainFileUri) {
                             const document = await vscode.workspace.openTextDocument(mainFileUri);

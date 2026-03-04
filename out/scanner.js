@@ -12,7 +12,8 @@ export async function scanProject() {
         language: 'javascript',
         isNextJs: false,
         existingComponents: [],
-        srcDir: ''
+        srcDir: '',
+        utilities: []
     };
     try {
         const packageJsonUri = vscode.Uri.file(path.join(rootPath, 'package.json'));
@@ -51,6 +52,8 @@ export async function scanProject() {
         if (techStack.componentsDir) {
             techStack.existingComponents = await listComponents(path.join(rootPath, techStack.componentsDir));
         }
+        // Detect Utilities (e.g. cn)
+        techStack.utilities = await detectUtilities(rootPath, techStack);
         // Style Context
         techStack.styleContext = await gatherStyleContext(rootPath, techStack);
         // Active File Context (if any)
@@ -168,5 +171,37 @@ async function findBestComponentDir(rootPath, techStack) {
         return path.join(src, 'components');
     }
     return src || undefined;
+}
+async function detectUtilities(rootPath, techStack) {
+    const utils = new Set();
+    const candidates = [
+        'src/lib/utils.ts',
+        'src/lib/utils.js',
+        'lib/utils.ts',
+        'lib/utils.js',
+        'src/utils/cn.ts',
+        'src/utils/cn.js',
+        'utils/cn.ts',
+        'src/utils/helpers.ts',
+    ];
+    for (const relPath of candidates) {
+        const fullPath = path.join(rootPath, relPath);
+        if (await fileExists(fullPath)) {
+            try {
+                const content = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+                const text = content.toString();
+                // Look for common tailwind merge utility
+                if (text.includes('export function cn') || text.includes('const cn =')) {
+                    utils.add('cn');
+                    console.log(`Detected 'cn' utility in ${relPath}`);
+                }
+                // Add more logic here if needed for other common helpers
+            }
+            catch (e) {
+                console.error(`Error reading utility file ${relPath}:`, e);
+            }
+        }
+    }
+    return Array.from(utils);
 }
 //# sourceMappingURL=scanner.js.map

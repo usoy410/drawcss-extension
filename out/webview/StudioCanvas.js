@@ -1,17 +1,15 @@
 "use client";
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useRef, useState, useEffect, useCallback } from "react";
-import { Pencil, Eraser, Type, Undo2, Redo2, RotateCcw, X, CornerDownLeft, Send, Square, Circle as CircleIcon, Minus, Shapes, MousePointer2, Plus, FileText, Link as LinkIcon, X as XIcon, Edit2, } from "lucide-react";
+import { Pencil, Eraser, Type, Undo2, Redo2, RotateCcw, X, CornerDownLeft, Send, Square, Circle as CircleIcon, Minus, Shapes, MousePointer2, Plus, Edit2, } from "lucide-react";
 import { cn } from "./lib/utils.js";
-export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirings, onPageChange, onAddPage, onDeletePage, onRenamePage, onSaveState, onAddWiring }) {
+export function StudioCanvas({ onSubmit, loading, components, currentComponentIndex, onComponentChange, onAddComponent, onDeleteComponent, onRenameComponent, onSaveState }) {
     const isFirstRender = useRef(true);
     const canvasRef = useRef(null);
     const offscreenCanvasRef = useRef(null);
     const [activeTool, setActiveTool] = useState("pencil");
     const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 800 });
     const [isResizing, setIsResizing] = useState(false);
-    const [linkSourceId, setLinkSourceId] = useState(null);
-    const [linkTargetPos, setLinkTargetPos] = useState(null);
     const [zoom, setZoom] = useState(1);
     const [brushSize, setBrushSize] = useState(3);
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -22,11 +20,13 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
     const [shapeStartPos, setShapeStartPos] = useState(null);
     const [previewImageData, setPreviewImageData] = useState(null);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
-    const [showAddPageModal, setShowAddPageModal] = useState(false);
-    const [newPageName, setNewPageName] = useState("");
+    const [showAddComponentModal, setShowAddComponentModal] = useState(false);
+    const [showGenerateModal, setShowGenerateModal] = useState(false);
+    const [additionalInstructions, setAdditionalInstructions] = useState("");
+    const [newComponentName, setNewComponentName] = useState("");
     const [shapes, setShapes] = useState([]);
-    const [editingPageId, setEditingPageId] = useState(null);
-    const [editingPageName, setEditingPageName] = useState("");
+    const [editingComponentId, setEditingComponentId] = useState(null);
+    const [editingComponentName, setEditingComponentName] = useState("");
     const [selectedId, setSelectedId] = useState(null);
     const [dragOffset, setDragOffset] = useState(null);
     const gridSize = 20;
@@ -100,12 +100,12 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         saveToHistory(newShapes);
         renderCanvas(newShapes);
     }, [selectedId, shapes, saveToHistory, renderCanvas]);
-    // Handle page switching
+    // Handle component switching
     useEffect(() => {
-        const page = pages[currentPageIndex];
-        if (!page)
+        const component = components[currentComponentIndex];
+        if (!component)
             return;
-        setShapes(page.shapes || []);
+        setShapes(component.shapes || []);
         setHistory([]);
         setHistoryStep(-1);
         const canvas = canvasRef.current;
@@ -117,20 +117,20 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
             offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
             ctx.fillStyle = "#121212";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            if (page.raster) {
+            if (component.raster) {
                 const img = new Image();
                 img.onload = () => {
                     offCtx.drawImage(img, 0, 0);
                     ctx.drawImage(img, 0, 0);
-                    renderCanvas(page.shapes || []);
+                    renderCanvas(component.shapes || []);
                 };
-                img.src = page.raster;
+                img.src = component.raster;
             }
             else {
-                renderCanvas(page.shapes || []);
+                renderCanvas(component.shapes || []);
             }
         }
-    }, [currentPageIndex, pages[currentPageIndex]?.id]);
+    }, [currentComponentIndex, components[currentComponentIndex]?.id]);
     // Handle keyboard for panning and deletion
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -356,24 +356,6 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
             offCtx.lineCap = "round";
             offCtx.lineJoin = "round";
         }
-        if (activeTool === "link") {
-            const hit = [...shapes].reverse().find(s => {
-                if (s.type === "rect") {
-                    return x >= s.x && x <= s.x + (s.width || 0) && y >= s.y && y <= s.y + (s.height || 0);
-                }
-                else if (s.type === "circle") {
-                    const dist = Math.sqrt((x - s.x) ** 2 + (y - s.y) ** 2);
-                    return dist <= (s.radius || 0);
-                }
-                return false;
-            });
-            if (hit) {
-                setLinkSourceId(hit.id);
-                setLinkTargetPos(snapped);
-                setIsDrawing(true);
-            }
-            return;
-        }
         ctx.strokeStyle = activeTool === "eraser" ? "#121212" : "white";
         ctx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
         setIsDrawing(true);
@@ -395,10 +377,6 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
         const ctx = canvas?.getContext("2d");
         if (!ctx || !canvas)
             return;
-        if (activeTool === "link" && linkSourceId) {
-            setLinkTargetPos(snapped);
-            return;
-        }
         if (activeTool === "select" && selectedId && dragOffset) {
             const newShapes = shapes.map(s => {
                 if (s.id === selectedId) {
@@ -478,16 +456,6 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
                 saveToHistory();
                 renderCanvas();
             }
-            if (activeTool === "link" && linkSourceId) {
-                // Find if we ended over a page in the sidebar? 
-                // For simplicity, we'll open a "Select Target Page" popover if not handled.
-                // But let's check hit testing for the sidebar via DOM if possible, or just a modal.
-                setPreviewImageData(null); // Clear any remains
-            }
-            if (activeTool === "link" && linkSourceId) {
-                // Wiring logic is handled by the popover that appears when linkSourceId is set but isDrawing is false
-                setPreviewImageData(null);
-            }
             setShapeStartPos(null);
             setPreviewImageData(null);
             setDragOffset(null);
@@ -509,50 +477,45 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
             }));
         }
     };
-    return (_jsxs("div", { className: "flex flex-col h-screen bg-[#050505] overflow-hidden", children: [_jsxs("header", { className: "flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md z-20", children: [_jsx("div", { className: "flex items-center gap-4", children: _jsxs("h1", { className: "text-sm font-medium tracking-tight text-white/80", children: ["Drawing Studio ", _jsx("span", { className: "text-white/20 font-mono text-xs", children: "v1.2" })] }) }), _jsxs("div", { className: "flex items-center gap-2 overflow-x-auto custom-scrollbar max-w-[400px] px-2", children: [pages.map((page, i) => (_jsxs("div", { className: "relative group/page", children: [editingPageId === page.id ? (_jsx("input", { autoFocus: true, className: "px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 border border-blue-500/50 text-blue-400 outline-none w-[100px]", value: editingPageName, onChange: (e) => setEditingPageName(e.target.value), onBlur: () => {
-                                            if (editingPageName.trim() && editingPageName !== page.name) {
-                                                onRenamePage(page.id, editingPageName.trim());
+    return (_jsxs("div", { className: "flex flex-col h-screen bg-[#050505] overflow-hidden relative", children: [_jsxs("header", { className: "flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md z-20", children: [_jsx("div", { className: "flex items-center gap-4", children: _jsxs("h1", { className: "text-sm font-medium tracking-tight text-white/80", children: ["Component Studio ", _jsx("span", { className: "text-white/20 font-mono text-xs", children: "v1.2" })] }) }), _jsxs("div", { className: "flex items-center gap-2 overflow-x-auto custom-scrollbar max-w-[400px] px-2", children: [components.map((comp, i) => (_jsxs("div", { className: "relative group/page", children: [editingComponentId === comp.id ? (_jsx("input", { autoFocus: true, className: "px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 border border-blue-500/50 text-blue-400 outline-none w-[100px]", value: editingComponentName, onChange: (e) => setEditingComponentName(e.target.value), onBlur: () => {
+                                            if (editingComponentName.trim() && editingComponentName !== comp.name) {
+                                                onRenameComponent(comp.id, editingComponentName.trim());
                                             }
-                                            setEditingPageId(null);
+                                            setEditingComponentId(null);
                                         }, onKeyDown: (e) => {
                                             if (e.key === "Enter") {
-                                                if (editingPageName.trim()) {
-                                                    onRenamePage(page.id, editingPageName.trim());
+                                                if (editingComponentName.trim()) {
+                                                    onRenameComponent(comp.id, editingComponentName.trim());
                                                 }
-                                                setEditingPageId(null);
+                                                setEditingComponentId(null);
                                             }
                                             if (e.key === "Escape")
-                                                setEditingPageId(null);
-                                        } })) : (_jsxs("button", { onClick: () => onPageChange(i), className: cn("flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap group/tab", currentPageIndex === i
+                                                setEditingComponentId(null);
+                                        } })) : (_jsxs("button", { onClick: () => onComponentChange(i), className: cn("flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap group/tab", currentComponentIndex === i
                                             ? "bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.2)]"
-                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"), children: [_jsx("div", { className: cn("w-1 h-1 rounded-full", currentPageIndex === i ? "bg-blue-400" : "bg-white/20") }), _jsx("span", { children: page.name }), _jsx(Edit2, { onClick: (e) => {
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"), children: [_jsx("div", { className: cn("w-1 h-1 rounded-full", currentComponentIndex === i ? "bg-blue-400" : "bg-white/20") }), _jsx("span", { children: comp.name }), _jsx(Edit2, { onClick: (e) => {
                                                     e.stopPropagation();
-                                                    setEditingPageId(page.id);
-                                                    setEditingPageName(page.name);
-                                                }, className: "w-3 h-3 opacity-0 group-hover/tab:opacity-100 transition-opacity hover:text-white" })] })), pages.length > 1 && (_jsx("button", { onClick: (e) => {
+                                                    setEditingComponentId(comp.id);
+                                                    setEditingComponentName(comp.name);
+                                                }, className: "w-3 h-3 opacity-0 group-hover/tab:opacity-100 transition-opacity hover:text-white" })] })), components.length > 1 && (_jsx("button", { onClick: (e) => {
                                             e.stopPropagation();
-                                            onDeletePage(page.id);
-                                        }, className: "absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/page:opacity-100 transition-opacity z-30", children: _jsx(X, { className: "w-2 h-2" }) }))] }, page.id))), _jsx("button", { onClick: () => setShowAddPageModal(true), className: "p-1.5 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5 rounded-lg transition-all", title: "Add New Page", children: _jsx(Plus, { className: "w-3.5 h-3.5" }) })] }), _jsxs("div", { className: "flex items-center gap-4", children: [_jsxs("div", { className: "flex items-center gap-2 glass px-3 py-1.5 rounded-xl border border-white/5 bg-white/5", children: [_jsx("input", { type: "number", value: canvasSize.width, onChange: (e) => {
+                                            onDeleteComponent(comp.id);
+                                        }, className: "absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/page:opacity-100 transition-opacity z-30", children: _jsx(X, { className: "w-2 h-2" }) }))] }, comp.id))), _jsx("button", { onClick: () => setShowAddComponentModal(true), className: "p-1.5 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5 rounded-lg transition-all", title: "Add New Component", children: _jsx(Plus, { className: "w-3.5 h-3.5" }) })] }), _jsxs("div", { className: "flex items-center gap-4", children: [_jsxs("div", { className: "flex items-center gap-2 glass px-3 py-1.5 rounded-xl border border-white/5 bg-white/5", children: [_jsx("input", { type: "number", value: canvasSize.width, onChange: (e) => {
                                             const val = parseInt(e.target.value) || 0;
                                             setCanvasSize(prev => ({ ...prev, width: Math.max(200, val) }));
                                         }, className: "w-12 bg-transparent text-[10px] font-mono text-white/60 focus:text-white focus:outline-none text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none", title: "Canvas Width" }), _jsx("span", { className: "text-[10px] text-white/20 font-mono", children: "x" }), _jsx("input", { type: "number", value: canvasSize.height, onChange: (e) => {
                                             const val = parseInt(e.target.value) || 0;
                                             setCanvasSize(prev => ({ ...prev, height: Math.max(200, val) }));
-                                        }, className: "w-12 bg-transparent text-[10px] font-mono text-white/60 focus:text-white focus:outline-none text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none", title: "Canvas Height" })] }), _jsx("button", { onClick: () => canvasRef.current && onSubmit(canvasRef.current.toDataURL("image/png")), disabled: loading || historyStep < 0, className: cn("flex items-center gap-2 px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all", historyStep >= 0 && !loading ? "bg-blue-600 text-white hover:bg-blue-500 shadow-[0_0_20px_rgba(37,99,235,0.4)]" : "bg-white/5 text-white/20 border border-white/5 cursor-not-allowed"), children: loading ? "Processing..." : _jsxs(_Fragment, { children: [_jsx(Send, { className: "w-3.5 h-3.5" }), " Generate Code"] }) })] })] }), _jsxs("div", { className: "flex flex-1 relative overflow-hidden", children: [_jsxs("aside", { className: "absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 p-2 glass rounded-2xl border border-white/10 z-20", children: [[
+                                        }, className: "w-12 bg-transparent text-[10px] font-mono text-white/60 focus:text-white focus:outline-none text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none", title: "Canvas Height" })] }), _jsx("button", { onClick: () => setShowGenerateModal(true), disabled: loading || historyStep < 0, className: cn("flex items-center gap-2 px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all", historyStep >= 0 && !loading ? "bg-blue-600 text-white hover:bg-blue-500 shadow-[0_0_20px_rgba(37,99,235,0.4)]" : "bg-white/5 text-white/20 border border-white/5 cursor-not-allowed"), children: loading ? "Processing..." : _jsxs(_Fragment, { children: [_jsx(Send, { className: "w-3.5 h-3.5" }), " Generate Code"] }) })] })] }), _jsxs("div", { className: "flex flex-1 relative overflow-hidden", children: [_jsxs("aside", { className: "absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 p-2 glass rounded-2xl border border-white/10 z-20", children: [[
                                 { id: "select", icon: MousePointer2, label: "Select", slider: false },
                                 { id: "pencil", icon: Pencil, label: "Pencil", slider: true },
                                 { id: "eraser", icon: Eraser, label: "Eraser", slider: true },
                                 { id: "shape", icon: Shapes, label: "Shapes", slider: false },
                                 { id: "text", icon: Type, label: "Text", slider: false },
-                                { id: "link", icon: LinkIcon, label: "Link", slider: false },
                             ].map((tool) => (_jsxs("div", { className: "relative group", children: [_jsxs("button", { onClick: () => {
                                             if (tool.id === "shape") {
                                                 setActiveTool("shape");
                                                 setIsShapeModalOpen(true);
-                                                return;
-                                            }
-                                            if (tool.id === "link") {
-                                                setActiveTool("link");
                                                 return;
                                             }
                                             if (activeTool === tool.id && tool.slider) {
@@ -623,35 +586,23 @@ export function StudioCanvas({ onSubmit, loading, pages, currentPageIndex, wirin
                                                 }
                                                 if (e.key === "Escape")
                                                     setTextInput(null);
-                                            }, className: "bg-transparent border border-white/40 rounded-md px-3 py-1.5 text-xs text-white focus:outline-none focus:border-white min-w-[120px]", placeholder: "Type element name..." }), _jsx("button", { onClick: handleCommitText, className: "p-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white", children: _jsx(CornerDownLeft, { className: "w-3 h-3" }) })] })), _jsxs("svg", { className: "absolute inset-0 w-full h-full pointer-events-none z-[100]", children: [pages[currentPageIndex] && wirings.filter(w => w.sourcePageId === pages[currentPageIndex].id).map((wiring, i) => {
-                                            const source = shapes.find(s => s.id === wiring.sourceElementId);
-                                            if (!source)
-                                                return null;
-                                            const targetPageIndex = pages.findIndex(p => p.id === wiring.targetPageId);
-                                            if (targetPageIndex === -1)
-                                                return null;
-                                            return (_jsxs("g", { children: [_jsx("path", { d: `M ${source.x + (source.width || 0) / 2} ${source.y + (source.height || 0) / 2} L ${canvasSize.width} ${canvasSize.height / 2}`, fill: "none", stroke: "rgba(16, 185, 129, 0.4)", strokeWidth: "2", strokeDasharray: "4 4" }), _jsxs("text", { x: canvasSize.width - 10, y: canvasSize.height / 2, fill: "#10b981", fontSize: "10", textAnchor: "end", className: "font-mono", children: ["\u2794 ", pages[targetPageIndex].name] })] }, i));
-                                        }), activeTool === "link" && linkSourceId && linkTargetPos && (_jsx("line", { x1: (shapes.find(s => s.id === linkSourceId)?.x ?? 0) + (shapes.find(s => s.id === linkSourceId)?.width || 0) / 2, y1: (shapes.find(s => s.id === linkSourceId)?.y ?? 0) + (shapes.find(s => s.id === linkSourceId)?.height || 0) / 2, x2: linkTargetPos.x, y2: linkTargetPos.y, stroke: "#10b981", strokeWidth: "2", strokeDasharray: "4 4" }))] })] }) }), _jsxs("aside", { className: "absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 p-2 glass rounded-2xl border border-white/10 z-20", children: [_jsx("button", { onClick: undo, disabled: historyStep <= 0, className: cn("p-3 rounded-xl transition-all", historyStep <= 0 ? "opacity-20 cursor-not-allowed" : "text-white/40 hover:bg-white/5 hover:text-white/60"), title: "Undo (Ctrl+Z)", children: _jsx(Undo2, { className: "w-5 h-5" }) }), _jsx("button", { onClick: redo, disabled: historyStep >= history.length - 1, className: cn("p-3 rounded-xl transition-all", historyStep >= history.length - 1 ? "opacity-20 cursor-not-allowed" : "text-white/40 hover:bg-white/5 hover:text-white/60"), title: "Redo (Ctrl+Y)", children: _jsx(Redo2, { className: "w-5 h-5" }) }), _jsx("div", { className: "h-px bg-white/10 mx-2" }), _jsx("button", { onClick: () => setShowDiscardModal(true), className: "p-3 rounded-xl text-red-400/40 hover:bg-red-400/5 hover:text-red-400 transition-all", title: "Discard All Changes", children: _jsx(RotateCcw, { className: "w-5 h-5" }) }), _jsx("div", { className: "h-px bg-white/10 mx-2" }), _jsxs("div", { className: "flex flex-col items-center gap-4 py-2", children: [_jsxs("button", { onClick: () => { setZoom(1); setPan({ x: 0, y: 0 }); }, className: "text-[10px] font-bold text-white/40 hover:text-white transition-all py-1 px-2 rounded-md hover:bg-white/5", title: "Reset View", children: [Math.round(zoom * 100), "%"] }), _jsx("div", { className: "relative group/slider flex flex-col items-center h-32 w-10", children: _jsx("div", { className: "absolute inset-0 flex items-center justify-center py-2", children: _jsx("input", { type: "range", min: "0.5", max: "5", step: "0.1", value: zoom, onChange: (e) => setZoom(parseFloat(e.target.value)), className: "h-full w-1.5 appearance-none bg-blue-500/10 rounded-full border border-white/5 cursor-pointer accent-blue-500 [writing-mode:bt-lr] [-webkit-appearance:slider-vertical]", style: {}, title: "Zoom" }) }) }), _jsxs("div", { className: "flex flex-col gap-1", children: [_jsx("button", { onClick: () => setZoom(prev => Math.min(prev + 0.5, 5)), className: "p-1.5 text-white/20 hover:text-white transition-all", title: "Zoom In", children: _jsx(Plus, { className: "w-3.5 h-3.5" }) }), _jsx("button", { onClick: () => setZoom(prev => Math.max(prev - 0.5, 0.5)), className: "p-1.5 text-white/20 hover:text-white transition-all", title: "Zoom Out", children: _jsx(Minus, { className: "w-3.5 h-3.5" }) })] })] })] })] }), activeTool === "link" && linkSourceId && !isDrawing && linkTargetPos && (_jsx("div", { className: "absolute z-[300] bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in fade-in zoom-in-95", style: {
-                    left: Math.min(window.innerWidth - 200, linkTargetPos.x * zoom + pan.x + 250),
-                    top: linkTargetPos.y * zoom + pan.y + 100
-                }, children: _jsxs("div", { className: "flex flex-col gap-2", children: [_jsxs("div", { className: "flex items-center justify-between gap-4 mb-2", children: [_jsx("span", { className: "text-[10px] font-bold uppercase tracking-widest text-emerald-400", children: "Link to Page" }), _jsx("button", { onClick: () => { setLinkSourceId(null); setLinkTargetPos(null); }, className: "text-white/20 hover:text-white/60", children: _jsx(XIcon, { className: "w-3.5 h-3.5" }) })] }), pages.map((page) => (_jsxs("button", { onClick: () => {
-                                if (linkSourceId) {
-                                    onAddWiring(linkSourceId, page.id);
-                                }
-                                setLinkSourceId(null);
-                                setLinkTargetPos(null);
-                            }, className: "flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/5 text-left transition-all group", children: [_jsx(FileText, { className: "w-4 h-4 text-white/20 group-hover:text-blue-400" }), _jsx("span", { className: "text-xs text-white/60 group-hover:text-white", children: page.name })] }, page.id)))] }) })), showDiscardModal && (_jsxs("div", { className: "absolute inset-0 z-[200] flex items-center justify-center p-4", children: [_jsx("div", { className: "absolute inset-0 bg-black/60 backdrop-blur-md", onClick: () => setShowDiscardModal(false) }), _jsx("div", { className: "relative w-full max-w-sm glass-card p-8 border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200", children: _jsxs("div", { className: "flex flex-col items-center text-center gap-6", children: [_jsx("div", { className: "w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center", children: _jsx(RotateCcw, { className: "w-8 h-8 text-red-400" }) }), _jsxs("div", { className: "space-y-2", children: [_jsx("h2", { className: "text-xl font-bold text-white tracking-tight", children: "Discard All Changes?" }), _jsx("p", { className: "text-xs text-white/40 leading-relaxed", children: "All your progress in this session will be permanently erased. This action cannot be undone." })] }), _jsxs("div", { className: "flex gap-3 w-full", children: [_jsx("button", { onClick: () => setShowDiscardModal(false), className: "flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all", children: "Cancel" }), _jsx("button", { onClick: discardAllChanges, className: "flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-red-500/20 transition-all", children: "Discard" })] })] }) })] })), showAddPageModal && (_jsxs("div", { className: "absolute inset-0 z-[400] flex items-center justify-center p-4", children: [_jsx("div", { className: "absolute inset-0 bg-black/60 backdrop-blur-md", onClick: () => setShowAddPageModal(false) }), _jsx("div", { className: "relative w-full max-w-sm glass-card p-8 border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200", children: _jsxs("div", { className: "flex flex-col gap-6", children: [_jsxs("div", { className: "flex items-center gap-4", children: [_jsx("div", { className: "p-3 bg-blue-500/10 rounded-2xl border border-blue-500/20", children: _jsx(Plus, { className: "w-6 h-6 text-blue-400" }) }), _jsxs("div", { className: "space-y-1", children: [_jsx("h2", { className: "text-xl font-bold text-white tracking-tight", children: "Add New Page" }), _jsx("p", { className: "text-xs text-white/40", children: "Give your page a descriptive name" })] })] }), _jsx("input", { autoFocus: true, type: "text", value: newPageName, onChange: (e) => setNewPageName(e.target.value), onKeyDown: (e) => {
-                                        if (e.key === "Enter" && newPageName.trim()) {
-                                            onAddPage(newPageName.trim());
-                                            setNewPageName("");
-                                            setShowAddPageModal(false);
+                                            }, className: "bg-transparent border border-white/40 rounded-md px-3 py-1.5 text-xs text-white focus:outline-none focus:border-white min-w-[120px]", placeholder: "Type element name..." }), _jsx("button", { onClick: handleCommitText, className: "p-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white", children: _jsx(CornerDownLeft, { className: "w-3 h-3" }) })] }))] }) }), _jsxs("aside", { className: "absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 p-2 glass rounded-2xl border border-white/10 z-20", children: [_jsx("button", { onClick: undo, disabled: historyStep <= 0, className: cn("p-3 rounded-xl transition-all", historyStep <= 0 ? "opacity-20 cursor-not-allowed" : "text-white/40 hover:bg-white/5 hover:text-white/60"), title: "Undo (Ctrl+Z)", children: _jsx(Undo2, { className: "w-5 h-5" }) }), _jsx("button", { onClick: redo, disabled: historyStep >= history.length - 1, className: cn("p-3 rounded-xl transition-all", historyStep >= history.length - 1 ? "opacity-20 cursor-not-allowed" : "text-white/40 hover:bg-white/5 hover:text-white/60"), title: "Redo (Ctrl+Y)", children: _jsx(Redo2, { className: "w-5 h-5" }) }), _jsx("div", { className: "h-px bg-white/10 mx-2" }), _jsx("button", { onClick: () => setShowDiscardModal(true), className: "p-3 rounded-xl text-red-400/40 hover:bg-red-400/5 hover:text-red-400 transition-all", title: "Discard All Changes", children: _jsx(RotateCcw, { className: "w-5 h-5" }) }), _jsx("div", { className: "h-px bg-white/10 mx-2" }), _jsxs("div", { className: "flex flex-col items-center gap-4 py-2", children: [_jsxs("button", { onClick: () => { setZoom(1); setPan({ x: 0, y: 0 }); }, className: "text-[10px] font-bold text-white/40 hover:text-white transition-all py-1 px-2 rounded-md hover:bg-white/5", title: "Reset View", children: [Math.round(zoom * 100), "%"] }), _jsx("div", { className: "relative group/slider flex flex-col items-center h-32 w-10", children: _jsx("div", { className: "absolute inset-0 flex items-center justify-center py-2", children: _jsx("input", { type: "range", min: "0.5", max: "5", step: "0.1", value: zoom, onChange: (e) => setZoom(parseFloat(e.target.value)), className: "h-full w-1.5 appearance-none bg-blue-500/10 rounded-full border border-white/5 cursor-pointer accent-blue-500 [writing-mode:bt-lr] [-webkit-appearance:slider-vertical]", style: {}, title: "Zoom" }) }) }), _jsxs("div", { className: "flex flex-col gap-1", children: [_jsx("button", { onClick: () => setZoom(prev => Math.min(prev + 0.5, 5)), className: "p-1.5 text-white/20 hover:text-white transition-all", title: "Zoom In", children: _jsx(Plus, { className: "w-3.5 h-3.5" }) }), _jsx("button", { onClick: () => setZoom(prev => Math.max(prev - 0.5, 0.5)), className: "p-1.5 text-white/20 hover:text-white transition-all", title: "Zoom Out", children: _jsx(Minus, { className: "w-3.5 h-3.5" }) })] })] })] })] }), showDiscardModal && (_jsxs("div", { className: "absolute inset-0 z-[200] flex items-center justify-center p-4", children: [_jsx("div", { className: "absolute inset-0 bg-black/60 backdrop-blur-md", onClick: () => setShowDiscardModal(false) }), _jsx("div", { className: "relative w-full max-w-sm glass-card p-8 border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200", children: _jsxs("div", { className: "flex flex-col items-center text-center gap-6", children: [_jsx("div", { className: "w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center", children: _jsx(RotateCcw, { className: "w-8 h-8 text-red-400" }) }), _jsxs("div", { className: "space-y-2", children: [_jsx("h2", { className: "text-xl font-bold text-white tracking-tight", children: "Discard All Changes?" }), _jsx("p", { className: "text-xs text-white/40 leading-relaxed", children: "All your progress in this session will be permanently erased. This action cannot be undone." })] }), _jsxs("div", { className: "flex gap-3 w-full", children: [_jsx("button", { onClick: () => setShowDiscardModal(false), className: "flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all", children: "Cancel" }), _jsx("button", { onClick: discardAllChanges, className: "flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-red-500/20 transition-all", children: "Discard" })] })] }) })] })), showAddComponentModal && (_jsxs("div", { className: "absolute inset-0 z-[400] flex items-center justify-center p-4", children: [_jsx("div", { className: "absolute inset-0 bg-black/60 backdrop-blur-md", onClick: () => setShowAddComponentModal(false) }), _jsx("div", { className: "relative w-full max-w-sm glass-card p-8 border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200", children: _jsxs("div", { className: "flex flex-col gap-6", children: [_jsxs("div", { className: "flex items-center gap-4", children: [_jsx("div", { className: "p-3 bg-blue-500/10 rounded-2xl border border-blue-500/20", children: _jsx(Plus, { className: "w-6 h-6 text-blue-400" }) }), _jsxs("div", { className: "space-y-1", children: [_jsx("h2", { className: "text-xl font-bold text-white tracking-tight", children: "Add New Component" }), _jsx("p", { className: "text-xs text-white/40", children: "Give your component a descriptive name" })] })] }), _jsx("input", { autoFocus: true, type: "text", value: newComponentName, onChange: (e) => setNewComponentName(e.target.value), onKeyDown: (e) => {
+                                        if (e.key === "Enter" && newComponentName.trim()) {
+                                            onAddComponent(newComponentName.trim());
+                                            setNewComponentName("");
+                                            setShowAddComponentModal(false);
                                         }
                                         if (e.key === "Escape")
-                                            setShowAddPageModal(false);
-                                    }, placeholder: "e.g., About Us, Contact, Dashboard", className: "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20" }), _jsxs("div", { className: "flex gap-3", children: [_jsx("button", { onClick: () => setShowAddPageModal(false), className: "flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all", children: "Cancel" }), _jsx("button", { disabled: !newPageName.trim(), onClick: () => {
-                                                onAddPage(newPageName.trim());
-                                                setNewPageName("");
-                                                setShowAddPageModal(false);
-                                            }, className: "flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-blue-500/20 transition-all font-mono", children: "Create Page" })] })] }) })] }))] }));
+                                            setShowAddComponentModal(false);
+                                    }, placeholder: "e.g., Header, Card, HeroSection", className: "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20" }), _jsxs("div", { className: "flex gap-3", children: [_jsx("button", { onClick: () => setShowAddComponentModal(false), className: "flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all", children: "Cancel" }), _jsx("button", { disabled: !newComponentName.trim(), onClick: () => {
+                                                onAddComponent(newComponentName.trim());
+                                                setNewComponentName("");
+                                                setShowAddComponentModal(false);
+                                            }, className: "flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-blue-500/20 transition-all font-mono", children: "Create Component" })] })] }) })] })), showGenerateModal && (_jsx("div", { className: "absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200", children: _jsxs("div", { className: "w-full max-w-md glass border border-white/10 rounded-2xl p-6 shadow-2xl scale-in-center overflow-hidden text-left", children: [_jsxs("div", { className: "flex items-center justify-between mb-6", children: [_jsxs("h3", { className: "text-lg font-bold text-white flex items-center gap-2", children: [_jsx(Send, { className: "w-5 h-5 text-blue-400" }), "Custom Instructions"] }), _jsx("button", { onClick: () => setShowGenerateModal(false), className: "p-1 hover:bg-white/10 rounded-lg transition-colors", children: _jsx(X, { className: "w-5 h-5 text-white/40" }) })] }), _jsx("p", { className: "text-sm text-white/60 mb-4", children: "Tell the AI any specific requirements for this generation (e.g., \"Use deep purple colors\", \"Add a contact form\", \"Make it mobile-responsive\")." }), _jsx("textarea", { autoFocus: true, value: additionalInstructions, onChange: (e) => setAdditionalInstructions(e.target.value), placeholder: "Add instructions (optional)...", className: "w-full h-32 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 transition-all resize-none mb-6" }), _jsxs("div", { className: "flex items-center gap-3", children: [_jsx("button", { onClick: () => setShowGenerateModal(false), className: "flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-white/60 hover:text-white hover:bg-white/5 transition-all", children: "Cancel" }), _jsx("button", { onClick: () => {
+                                        if (canvasRef.current) {
+                                            onSubmit(canvasRef.current.toDataURL("image/png"), additionalInstructions);
+                                            setShowGenerateModal(false);
+                                        }
+                                    }, className: "flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-500 shadow-lg shadow-blue-600/20 transition-all active:scale-95", children: "Generate" })] })] }) }))] }));
 }
 //# sourceMappingURL=StudioCanvas.js.map

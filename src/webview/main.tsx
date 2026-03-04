@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { StudioCanvas } from './StudioCanvas.js';
-import { Page, Wiring } from './types/project.js';
+import { ComponentDesign } from './types/project.js';
 import { GenerationOverlay } from './GenerationOverlay.js';
 import './globals.css';
 
@@ -9,11 +9,10 @@ import './globals.css';
 const vscode = (window as any).vscode;
 
 const WebviewApp = () => {
-    const [pages, setPages] = React.useState<Page[]>([
-        { id: 'home', name: 'Home', shapes: [], raster: '' }
+    const [components, setComponents] = React.useState<ComponentDesign[]>([
+        { id: 'component-1', name: 'New Component', shapes: [], raster: '' }
     ]);
-    const [currentPageIndex, setCurrentPageIndex] = React.useState(0);
-    const [wirings, setWirings] = React.useState<Wiring[]>([]);
+    const [currentComponentIndex, setCurrentComponentIndex] = React.useState(0);
 
     // Generation State
     const [isGenerating, setIsGenerating] = React.useState(false);
@@ -21,6 +20,7 @@ const WebviewApp = () => {
     const [genThoughts, setGenThoughts] = React.useState("");
     const [genError, setGenError] = React.useState<string | null>(null);
     const [isComplete, setIsComplete] = React.useState(false);
+    const [canRollback, setCanRollback] = React.useState(false);
 
     React.useEffect(() => {
         const debug = document.getElementById('debug-status');
@@ -32,8 +32,7 @@ const WebviewApp = () => {
             const message = event.data;
             switch (message.command) {
                 case 'initialState':
-                    if (message.data.pages) setPages(message.data.pages);
-                    if (message.data.wirings) setWirings(message.data.wirings);
+                    if (message.data.components) setComponents(message.data.components);
                     break;
                 case 'status':
                     setGenStatus(message.text);
@@ -44,6 +43,7 @@ const WebviewApp = () => {
                 case 'complete':
                     setIsComplete(true);
                     setGenStatus("Generation complete!");
+                    if (message.canRollback) setCanRollback(true);
                     break;
                 case 'error':
                     setGenError(message.text);
@@ -62,11 +62,11 @@ const WebviewApp = () => {
         const timeout = setTimeout(() => {
             vscode.postMessage({
                 command: 'saveState',
-                data: { pages, wirings }
+                data: { components }
             });
         }, 1000);
         return () => clearTimeout(timeout);
-    }, [pages, wirings]);
+    }, [components]);
 
     const handleSubmit = (base64: string, instructions?: string) => {
         setIsGenerating(true);
@@ -78,49 +78,50 @@ const WebviewApp = () => {
         vscode.postMessage({
             command: 'submit',
             data: base64,
-            navigation: {
-                pages: pages.map(p => ({ id: p.id, name: p.name })),
-                wirings: wirings,
-                currentPageId: pages[currentPageIndex].id
-            },
             additionalInstructions: instructions
         });
     };
 
-    const handleAddPage = (name: string) => {
-        const newPage: Page = {
+    const handleRevert = () => {
+        setGenStatus("Reverting changes...");
+        vscode.postMessage({ command: 'revert' });
+        setCanRollback(false);
+    };
+
+    const handleAddComponent = (name: string) => {
+        const newComponent: ComponentDesign = {
             id: Math.random().toString(36).substr(2, 9),
             name,
             shapes: [],
             raster: ''
         };
 
-        const nextPages = [...pages, newPage];
-        setPages(nextPages);
-        setCurrentPageIndex(nextPages.length - 1);
+        const nextComponents = [...components, newComponent];
+        setComponents(nextComponents);
+        setCurrentComponentIndex(nextComponents.length - 1);
     };
 
-    const handleDeletePage = (id: string) => {
-        if (pages.length <= 1) return;
-        setPages(prev => {
-            const newPages = prev.filter(p => p.id !== id);
-            if (currentPageIndex >= newPages.length) {
-                setCurrentPageIndex(Math.max(0, newPages.length - 1));
+    const handleDeleteComponent = (id: string) => {
+        if (components.length <= 1) return;
+        setComponents(prev => {
+            const newComponents = prev.filter(c => c.id !== id);
+            if (currentComponentIndex >= newComponents.length) {
+                setCurrentComponentIndex(Math.max(0, newComponents.length - 1));
             }
-            return newPages;
+            return newComponents;
         });
     };
 
-    const handleRenamePage = (id: string, newName: string) => {
-        setPages(prev => prev.map(p => p.id === id ? { ...p, name: newName } : p));
+    const handleRenameComponent = (id: string, newName: string) => {
+        setComponents(prev => prev.map(c => c.id === id ? { ...c, name: newName } : c));
     };
 
     const handleSaveState = (shapes: any[], raster: string) => {
-        setPages(prev => {
+        setComponents(prev => {
             const next = [...prev];
-            if (next[currentPageIndex]) {
-                next[currentPageIndex] = {
-                    ...next[currentPageIndex],
+            if (next[currentComponentIndex]) {
+                next[currentComponentIndex] = {
+                    ...next[currentComponentIndex],
                     shapes,
                     raster
                 };
@@ -129,29 +130,18 @@ const WebviewApp = () => {
         });
     };
 
-    const handleAddWiring = (elementId: string, targetPageId: string) => {
-        const newWiring: Wiring = {
-            sourcePageId: pages[currentPageIndex].id,
-            sourceElementId: elementId,
-            targetPageId
-        };
-        setWirings(prev => [...prev, newWiring]);
-    };
-
     return (
         <div style={{ width: '100vw', height: '100vh', background: '#050505' }}>
             <StudioCanvas
                 onSubmit={handleSubmit}
                 loading={isGenerating}
-                pages={pages}
-                currentPageIndex={currentPageIndex}
-                wirings={wirings}
-                onPageChange={setCurrentPageIndex}
-                onAddPage={handleAddPage}
-                onDeletePage={handleDeletePage}
-                onRenamePage={handleRenamePage}
+                components={components}
+                currentComponentIndex={currentComponentIndex}
+                onComponentChange={setCurrentComponentIndex}
+                onAddComponent={handleAddComponent}
+                onDeleteComponent={handleDeleteComponent}
+                onRenameComponent={handleRenameComponent}
                 onSaveState={handleSaveState}
-                onAddWiring={handleAddWiring}
             />
 
             {isGenerating && (
@@ -161,6 +151,8 @@ const WebviewApp = () => {
                     isComplete={isComplete}
                     error={genError}
                     onClose={() => setIsGenerating(false)}
+                    canRollback={canRollback}
+                    onRevert={handleRevert}
                 />
             )}
         </div>

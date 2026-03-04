@@ -1,5 +1,4 @@
-import React from 'react';
-import { Loader2, Brain, CheckCircle2, FileText, ChevronRight, X } from 'lucide-react';
+import { Loader2, Brain, CheckCircle2, FileText, ChevronRight, X, RotateCcw } from 'lucide-react';
 
 interface GenerationOverlayProps {
     status: string;
@@ -7,9 +6,11 @@ interface GenerationOverlayProps {
     isComplete: boolean;
     error: string | null;
     onClose: () => void;
+    canRollback?: boolean;
+    onRevert?: () => void;
 }
 
-export const GenerationOverlay = ({ status, thoughts, isComplete, error, onClose }: GenerationOverlayProps) => {
+export const GenerationOverlay = ({ status, thoughts, isComplete, error, onClose, canRollback, onRevert }: GenerationOverlayProps) => {
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#050505]/90 backdrop-blur-xl animate-in fade-in duration-300">
             <div className="w-full max-w-2xl p-8 rounded-3xl border border-white/10 bg-black/40 shadow-2xl relative overflow-hidden">
@@ -72,12 +73,22 @@ export const GenerationOverlay = ({ status, thoughts, isComplete, error, onClose
                                 <p className="text-xs text-white/40 leading-relaxed">
                                     The components have been integrated into your project. I've also created a <span className="text-white/60 font-mono">GENERATION_REPORT.md</span> in your root directory with full details.
                                 </p>
-                                <button
-                                    onClick={onClose}
-                                    className="w-full py-3 rounded-xl bg-white text-black text-sm font-bold hover:bg-white/90 transition-all flex items-center justify-center gap-2"
-                                >
-                                    Return to Studio <ChevronRight className="w-4 h-4" />
-                                </button>
+                                <div className="flex gap-3">
+                                    {canRollback && onRevert && (
+                                        <button
+                                            onClick={onRevert}
+                                            className="px-4 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-white/60 hover:text-white text-sm font-medium transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <RotateCcw className="w-4 h-4" /> Revert Changes
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={onClose}
+                                        className="flex-1 py-3 rounded-xl bg-white text-black text-sm font-bold hover:bg-white/90 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        Return to Studio <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>

@@ -11,13 +11,9 @@ export interface TechStack {
     componentsDir?: string;
     srcDir: string;
     styleContext?: string;
+    utilities?: string[];
     existingComponents?: string[];
     activeFileContent?: string;
-    navigation?: {
-        pages: { id: string, name: string }[];
-        wirings: { sourcePageId: string, sourceElementId: string, targetPageId: string }[];
-        currentPageId: string;
-    };
     additionalInstructions?: string;
 }
 
@@ -68,17 +64,6 @@ export async function generateAgenticCode(drawingData: string, techStack: TechSt
     });
 
     try {
-        const currentPage = techStack.navigation?.pages.find(p => p.id === techStack.navigation?.currentPageId);
-        const currentPageName = currentPage?.name || 'Home';
-
-        const navigationContext = techStack.navigation ? `
-Project Navigation Context:
-- **CURRENT PAGE BEING GENERATED**: "${currentPageName}" (ID: ${techStack.navigation.currentPageId})
-- All Project Pages:
-${techStack.navigation.pages.map(p => `  * ${p.name} (ID: ${p.id})`).join('\n')}
-- Wirings (Interactions):
-${techStack.navigation.wirings.filter(w => w.sourcePageId === techStack.navigation?.currentPageId).map(w => `  * Element ${w.sourceElementId} links to Page ID ${w.targetPageId}`).join('\n')}
-` : '';
 
         const userInstructions = techStack.additionalInstructions ? `
 USER CUSTOM INSTRUCTIONS (PRIORITIZE THESE):
@@ -87,7 +72,6 @@ ${techStack.additionalInstructions}
 
         const prompt = `Please convert this UI drawing into code that integrates SEAMLESSLY into the existing project.
 
-${navigationContext}
 ${userInstructions}
 
 Current Project Context:
@@ -97,6 +81,7 @@ Current Project Context:
 - Source Root Directory: ${techStack.srcDir || 'Project Root (no src/)'}
 - Recommended Components Directory: ${techStack.componentsDir || (techStack.srcDir ? techStack.srcDir + '/components' : 'components')}
 - Existing Components: ${techStack.existingComponents?.join(', ') || 'None detected'}
+- Detected Utilities: ${techStack.utilities?.join(', ') || 'None detected'}
 
 Active File Context (The user is currently working here):
 ${techStack.activeFileContent ? "```\n" + techStack.activeFileContent + "\n```" : 'No active file content.'}
@@ -111,24 +96,22 @@ INSTRUCTIONS:
 1. Match the Color Palette: Use the background, text, and primary colors found in the style context.
 2. Match Typography: Use the same font families and sizing scales.
 3. Match Spacing & Radii: If the user uses specific padding patterns (e.g., p-8) or border-radius (e.g., 12px), replicate them.
-4. Integrate, don't just generate: If the user has an active file open, match its coding style and imports.
+4. Integrate, don't just generate: Match the coding style and imports of the existing project.
 5. Reuse existing CSS variables (e.g., --primary, --surface) for all new styles.
-6. **Routing & File Placement**:
-   - For Next.js App Router:
-     - The main entry for a page MUST be named \`page.tsx\`.
-     - **SUBFOLDER RULE**: If the current page is NOT the index/home page, you MUST place it in a subfolder of \`app/\` named after the current page (slugified).
-     - Example (Current Page "${currentPageName}"):
-       - If it's a secondary page: folder: "app/${currentPageName.toLowerCase().replace(/\s+/g, '-')}", fileName: "page.tsx".
-       - If it's the Home page: folder: "app/", fileName: "page.tsx".
-   - For Vanilla HTML:
-     - Use the slugified page name as the filename (e.g., "${currentPageName.toLowerCase().replace(/\s+/g, '-')}.html").
-7. **Navigation & Linking**: If an element in the drawing has a wiring to another page:
-   - For Next.js: Use the \`next/link\` component: \`<Link href="/target-slug">\`.
-   - For React (generic): Use \`<a>\` or your router's link component.
-   - For Vanilla HTML: Use \`<a href="target-slug.html">\`.
-   - SLUG RULE: Use lowercase-kebab-case (e.g., "About Us" -> "about-us").
+6. **File Placement**:
+   - Place generated components in the recommended components directory: ${techStack.componentsDir || (techStack.srcDir ? techStack.srcDir + '/components' : 'components')}.
+7. **Component Focus**:
+   - This is NOT a full page. Do not include <html>, <body>, or page-level layouts.
+   - Return a clean, reusable component (React function component, Vue component, or a single HTML block).
 8. Break the UI down into granular, reusable components if it makes sense.
-9. If Next.js, follow App Router conventions.`;
+9. If Next.js or React, ensure the component exports correctly.
+10. NEVER overwrite main entry points like page.tsx or index.html unless explicitly instructed by the user in custom instructions.
+11. **Utility Usage**:
+    - DO NOT assume the existence of utility files (e.g., "@/lib/utils") that are not listed in "Detected Utilities".
+    - If a utility like "cn" is missing but you want to use it, either:
+        a) Generate the utility file yourself as part of the "files" array.
+        b) Use standard string concatenation or template literals for classes.
+`;
 
         // Remove data:image/png;base64, prefix if present
         const base64Data = drawingData.split(",")[1] || drawingData;
@@ -204,11 +187,12 @@ INTEGRATION RULES:
      ]
    }
 2. Respect Existing Styles: Use the provided CSS variables or Tailwind patterns. DO NOT generate new global CSS files like "global1.css" if global styles already exist.
-3. Modular Architecture: Break down the drawing into logical units that fit the user's ${techStack.framework} setup.
-4. Reuse Patterns: If the user provided an active file's content, match its imports, component structure, and naming conventions.
-5. Icons: Use Lucide icons (as SVGs or component imports).
-6. Design Excellence: perfectly replicate spacing and aesthetics while staying consistent with the project's existing theme.
-7. Output: Return ONLY the RAW JSON object. DO NOT include markdown code blocks.`;
+3. **Hallucination Protection**: Do not import or reference any files, hooks, or utility functions (like "cn" or "@/lib/utils") unless they are explicitly listed in the provided context or you are generating them in this response.
+4. Modular Architecture: Break down the drawing into logical units that fit the user's ${techStack.framework} setup.
+5. Reuse Patterns: If the user provided an active file's content, match its imports, component structure, and naming conventions.
+6. Icons: Use Lucide icons (as SVGs or component imports).
+7. Design Excellence: perfectly replicate spacing and aesthetics while staying consistent with the project's existing theme.
+8. Output: Return ONLY the RAW JSON object. DO NOT include markdown code blocks.`;
 }
 
 function cleanGeneratedCode(text: string): string {

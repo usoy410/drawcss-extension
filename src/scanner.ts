@@ -15,7 +15,8 @@ export async function scanProject(): Promise<TechStack> {
         language: 'javascript',
         isNextJs: false,
         existingComponents: [],
-        srcDir: ''
+        srcDir: '',
+        utilities: []
     };
 
     try {
@@ -58,6 +59,9 @@ export async function scanProject(): Promise<TechStack> {
         if (techStack.componentsDir) {
             techStack.existingComponents = await listComponents(path.join(rootPath, techStack.componentsDir));
         }
+
+        // Detect Utilities (e.g. cn)
+        techStack.utilities = await detectUtilities(rootPath, techStack);
 
         // Style Context
         techStack.styleContext = await gatherStyleContext(rootPath, techStack);
@@ -189,4 +193,40 @@ async function findBestComponentDir(rootPath: string, techStack: TechStack): Pro
     }
 
     return src || undefined;
+}
+
+async function detectUtilities(rootPath: string, techStack: TechStack): Promise<string[]> {
+    const utils = new Set<string>();
+    const candidates = [
+        'src/lib/utils.ts',
+        'src/lib/utils.js',
+        'lib/utils.ts',
+        'lib/utils.js',
+        'src/utils/cn.ts',
+        'src/utils/cn.js',
+        'utils/cn.ts',
+        'src/utils/helpers.ts',
+    ];
+
+    for (const relPath of candidates) {
+        const fullPath = path.join(rootPath, relPath);
+        if (await fileExists(fullPath)) {
+            try {
+                const content = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+                const text = content.toString();
+
+                // Look for common tailwind merge utility
+                if (text.includes('export function cn') || text.includes('const cn =')) {
+                    utils.add('cn');
+                    console.log(`Detected 'cn' utility in ${relPath}`);
+                }
+
+                // Add more logic here if needed for other common helpers
+            } catch (e) {
+                console.error(`Error reading utility file ${relPath}:`, e);
+            }
+        }
+    }
+
+    return Array.from(utils);
 }

@@ -22,30 +22,27 @@ import {
     Trash2,
     FileText,
     LayoutTemplate,
-    Link as LinkIcon,
     MoveUpRight,
     X as XIcon,
     Edit2,
 } from "lucide-react";
 import { cn } from "./lib/utils.js";
 
-import { Page, Wiring } from "./types/project.js";
+import { ComponentDesign } from "./types/project.js";
 
 interface StudioCanvasProps {
     onSubmit: (base64: string, instructions?: string) => void;
     loading?: boolean;
-    pages: Page[];
-    currentPageIndex: number;
-    wirings: Wiring[];
-    onPageChange: (index: number) => void;
-    onAddPage: (name: string) => void;
-    onDeletePage: (id: string) => void;
-    onRenamePage: (id: string, name: string) => void;
+    components: ComponentDesign[];
+    currentComponentIndex: number;
+    onComponentChange: (index: number) => void;
+    onAddComponent: (name: string) => void;
+    onDeleteComponent: (id: string) => void;
+    onRenameComponent: (id: string, name: string) => void;
     onSaveState: (shapes: Shape[], raster: string) => void;
-    onAddWiring: (elementId: string, targetPageId: string) => void;
 }
 
-type Tool = "pencil" | "eraser" | "text" | "shape" | "select" | "link";
+type Tool = "pencil" | "eraser" | "text" | "shape" | "select";
 type ShapeType = "rect" | "circle" | "line";
 
 export interface Shape {
@@ -68,15 +65,13 @@ interface HistoryStep {
 export function StudioCanvas({
     onSubmit,
     loading,
-    pages,
-    currentPageIndex,
-    wirings,
-    onPageChange,
-    onAddPage,
-    onDeletePage,
-    onRenamePage,
-    onSaveState,
-    onAddWiring
+    components,
+    currentComponentIndex,
+    onComponentChange,
+    onAddComponent,
+    onDeleteComponent,
+    onRenameComponent,
+    onSaveState
 }: StudioCanvasProps) {
     const isFirstRender = useRef(true);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -84,8 +79,6 @@ export function StudioCanvas({
     const [activeTool, setActiveTool] = useState<Tool>("pencil");
     const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 800 });
     const [isResizing, setIsResizing] = useState(false);
-    const [linkSourceId, setLinkSourceId] = useState<string | null>(null);
-    const [linkTargetPos, setLinkTargetPos] = useState<{ x: number, y: number } | null>(null);
     const [zoom, setZoom] = useState(1);
     const [brushSize, setBrushSize] = useState(3);
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -96,14 +89,14 @@ export function StudioCanvas({
     const [shapeStartPos, setShapeStartPos] = useState<{ x: number, y: number } | null>(null);
     const [previewImageData, setPreviewImageData] = useState<ImageData | null>(null);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
-    const [showAddPageModal, setShowAddPageModal] = useState(false);
+    const [showAddComponentModal, setShowAddComponentModal] = useState(false);
     const [showGenerateModal, setShowGenerateModal] = useState(false);
     const [additionalInstructions, setAdditionalInstructions] = useState("");
-    const [newPageName, setNewPageName] = useState("");
+    const [newComponentName, setNewComponentName] = useState("");
 
     const [shapes, setShapes] = useState<Shape[]>([]);
-    const [editingPageId, setEditingPageId] = useState<string | null>(null);
-    const [editingPageName, setEditingPageName] = useState("");
+    const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
+    const [editingComponentName, setEditingComponentName] = useState("");
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [dragOffset, setDragOffset] = useState<{ x: number, y: number } | null>(null);
     const gridSize = 20;
@@ -183,12 +176,12 @@ export function StudioCanvas({
         renderCanvas(newShapes);
     }, [selectedId, shapes, saveToHistory, renderCanvas]);
 
-    // Handle page switching
+    // Handle component switching
     useEffect(() => {
-        const page = pages[currentPageIndex];
-        if (!page) return;
+        const component = components[currentComponentIndex];
+        if (!component) return;
 
-        setShapes(page.shapes || []);
+        setShapes(component.shapes || []);
         setHistory([]);
         setHistoryStep(-1);
 
@@ -203,19 +196,19 @@ export function StudioCanvas({
             ctx.fillStyle = "#121212";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            if (page.raster) {
+            if (component.raster) {
                 const img = new Image();
                 img.onload = () => {
                     offCtx.drawImage(img, 0, 0);
                     ctx.drawImage(img, 0, 0);
-                    renderCanvas(page.shapes || []);
+                    renderCanvas(component.shapes || []);
                 };
-                img.src = page.raster;
+                img.src = component.raster;
             } else {
-                renderCanvas(page.shapes || []);
+                renderCanvas(component.shapes || []);
             }
         }
-    }, [currentPageIndex, pages[currentPageIndex]?.id]);
+    }, [currentComponentIndex, components[currentComponentIndex]?.id]);
 
     // Handle keyboard for panning and deletion
     useEffect(() => {
@@ -458,25 +451,6 @@ export function StudioCanvas({
             offCtx.lineJoin = "round";
         }
 
-        if (activeTool === "link") {
-            const hit = [...shapes].reverse().find(s => {
-                if (s.type === "rect") {
-                    return x >= s.x && x <= s.x + (s.width || 0) && y >= s.y && y <= s.y + (s.height || 0);
-                } else if (s.type === "circle") {
-                    const dist = Math.sqrt((x - s.x) ** 2 + (y - s.y) ** 2);
-                    return dist <= (s.radius || 0);
-                }
-                return false;
-            });
-
-            if (hit) {
-                setLinkSourceId(hit.id);
-                setLinkTargetPos(snapped);
-                setIsDrawing(true);
-            }
-            return;
-        }
-
         ctx.strokeStyle = activeTool === "eraser" ? "#121212" : "white";
         ctx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
         setIsDrawing(true);
@@ -499,10 +473,6 @@ export function StudioCanvas({
         const ctx = canvas?.getContext("2d");
         if (!ctx || !canvas) return;
 
-        if (activeTool === "link" && linkSourceId) {
-            setLinkTargetPos(snapped);
-            return;
-        }
 
         if (activeTool === "select" && selectedId && dragOffset) {
             const newShapes = shapes.map(s => {
@@ -588,18 +558,6 @@ export function StudioCanvas({
                 renderCanvas();
             }
 
-            if (activeTool === "link" && linkSourceId) {
-                // Find if we ended over a page in the sidebar? 
-                // For simplicity, we'll open a "Select Target Page" popover if not handled.
-                // But let's check hit testing for the sidebar via DOM if possible, or just a modal.
-                setPreviewImageData(null); // Clear any remains
-            }
-
-            if (activeTool === "link" && linkSourceId) {
-                // Wiring logic is handled by the popover that appears when linkSourceId is set but isDrawing is false
-                setPreviewImageData(null);
-            }
-
             setShapeStartPos(null);
             setPreviewImageData(null);
             setDragOffset(null);
@@ -623,68 +581,68 @@ export function StudioCanvas({
     };
 
     return (
-        <div className="flex flex-col h-screen bg-[#050505] overflow-hidden">
+        <div className="flex flex-col h-screen bg-[#050505] overflow-hidden relative">
             <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md z-20">
                 <div className="flex items-center gap-4">
-                    <h1 className="text-sm font-medium tracking-tight text-white/80">Drawing Studio <span className="text-white/20 font-mono text-xs">v1.2</span></h1>
+                    <h1 className="text-sm font-medium tracking-tight text-white/80">Component Studio <span className="text-white/20 font-mono text-xs">v1.2</span></h1>
                 </div>
 
                 {/* Pages List in Top Left (relative to canvas or fixed in header) - Moving to absolute overlay for better positioning */}
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar max-w-[400px] px-2">
-                    {pages.map((page, i) => (
-                        <div key={page.id} className="relative group/page">
-                            {editingPageId === page.id ? (
+                    {components.map((comp, i) => (
+                        <div key={comp.id} className="relative group/page">
+                            {editingComponentId === comp.id ? (
                                 <input
                                     autoFocus
                                     className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 border border-blue-500/50 text-blue-400 outline-none w-[100px]"
-                                    value={editingPageName}
-                                    onChange={(e) => setEditingPageName(e.target.value)}
+                                    value={editingComponentName}
+                                    onChange={(e) => setEditingComponentName(e.target.value)}
                                     onBlur={() => {
-                                        if (editingPageName.trim() && editingPageName !== page.name) {
-                                            onRenamePage(page.id, editingPageName.trim());
+                                        if (editingComponentName.trim() && editingComponentName !== comp.name) {
+                                            onRenameComponent(comp.id, editingComponentName.trim());
                                         }
-                                        setEditingPageId(null);
+                                        setEditingComponentId(null);
                                     }}
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") {
-                                            if (editingPageName.trim()) {
-                                                onRenamePage(page.id, editingPageName.trim());
+                                            if (editingComponentName.trim()) {
+                                                onRenameComponent(comp.id, editingComponentName.trim());
                                             }
-                                            setEditingPageId(null);
+                                            setEditingComponentId(null);
                                         }
-                                        if (e.key === "Escape") setEditingPageId(null);
+                                        if (e.key === "Escape") setEditingComponentId(null);
                                     }}
                                 />
                             ) : (
                                 <button
-                                    onClick={() => onPageChange(i)}
+                                    onClick={() => onComponentChange(i)}
                                     className={cn(
                                         "flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap group/tab",
-                                        currentPageIndex === i
+                                        currentComponentIndex === i
                                             ? "bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.2)]"
                                             : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
                                     )}
                                 >
                                     <div className={cn(
                                         "w-1 h-1 rounded-full",
-                                        currentPageIndex === i ? "bg-blue-400" : "bg-white/20"
+                                        currentComponentIndex === i ? "bg-blue-400" : "bg-white/20"
                                     )} />
-                                    <span>{page.name}</span>
+                                    <span>{comp.name}</span>
                                     <Edit2
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            setEditingPageId(page.id);
-                                            setEditingPageName(page.name);
+                                            setEditingComponentId(comp.id);
+                                            setEditingComponentName(comp.name);
                                         }}
                                         className="w-3 h-3 opacity-0 group-hover/tab:opacity-100 transition-opacity hover:text-white"
                                     />
                                 </button>
                             )}
-                            {pages.length > 1 && (
+                            {components.length > 1 && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onDeletePage(page.id);
+                                        onDeleteComponent(comp.id);
                                     }}
                                     className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/page:opacity-100 transition-opacity z-30"
                                 >
@@ -694,9 +652,9 @@ export function StudioCanvas({
                         </div>
                     ))}
                     <button
-                        onClick={() => setShowAddPageModal(true)}
+                        onClick={() => setShowAddComponentModal(true)}
                         className="p-1.5 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5 rounded-lg transition-all"
-                        title="Add New Page"
+                        title="Add New Component"
                     >
                         <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -748,7 +706,6 @@ export function StudioCanvas({
                         { id: "eraser", icon: Eraser, label: "Eraser", slider: true },
                         { id: "shape", icon: Shapes, label: "Shapes", slider: false },
                         { id: "text", icon: Type, label: "Text", slider: false },
-                        { id: "link", icon: LinkIcon, label: "Link", slider: false },
                     ].map((tool) => (
                         <div key={tool.id} className="relative group">
                             <button
@@ -756,10 +713,6 @@ export function StudioCanvas({
                                     if (tool.id === "shape") {
                                         setActiveTool("shape");
                                         setIsShapeModalOpen(true);
-                                        return;
-                                    }
-                                    if (tool.id === "link") {
-                                        setActiveTool("link");
                                         return;
                                     }
                                     if (activeTool === tool.id && tool.slider) {
@@ -941,42 +894,6 @@ export function StudioCanvas({
                             </div>
                         )}
 
-                        {/* Wiring Lines Overlay */}
-                        <svg className="absolute inset-0 w-full h-full pointer-events-none z-[100]">
-                            {pages[currentPageIndex] && wirings.filter(w => w.sourcePageId === pages[currentPageIndex].id).map((wiring, i) => {
-                                const source = shapes.find(s => s.id === wiring.sourceElementId);
-                                if (!source) return null;
-                                const targetPageIndex = pages.findIndex(p => p.id === wiring.targetPageId);
-                                if (targetPageIndex === -1) return null;
-
-                                return (
-                                    <g key={i}>
-                                        <path
-                                            d={`M ${source.x + (source.width || 0) / 2} ${source.y + (source.height || 0) / 2} L ${canvasSize.width} ${canvasSize.height / 2}`}
-                                            fill="none"
-                                            stroke="rgba(16, 185, 129, 0.4)"
-                                            strokeWidth="2"
-                                            strokeDasharray="4 4"
-                                        />
-                                        <text x={canvasSize.width - 10} y={canvasSize.height / 2} fill="#10b981" fontSize="10" textAnchor="end" className="font-mono">
-                                            ➔ {pages[targetPageIndex].name}
-                                        </text>
-                                    </g>
-                                );
-                            })}
-
-                            {activeTool === "link" && linkSourceId && linkTargetPos && (
-                                <line
-                                    x1={(shapes.find(s => s.id === linkSourceId)?.x ?? 0) + (shapes.find(s => s.id === linkSourceId)?.width || 0) / 2}
-                                    y1={(shapes.find(s => s.id === linkSourceId)?.y ?? 0) + (shapes.find(s => s.id === linkSourceId)?.height || 0) / 2}
-                                    x2={linkTargetPos.x}
-                                    y2={linkTargetPos.y}
-                                    stroke="#10b981"
-                                    strokeWidth="2"
-                                    strokeDasharray="4 4"
-                                />
-                            )}
-                        </svg>
                     </div>
                 </main>
 
@@ -1058,42 +975,6 @@ export function StudioCanvas({
                 </aside>
             </div>
 
-            {/* Link Target Selector */}
-            {
-                activeTool === "link" && linkSourceId && !isDrawing && linkTargetPos && (
-                    <div className="absolute z-[300] bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in fade-in zoom-in-95"
-                        style={{
-                            left: Math.min(window.innerWidth - 200, linkTargetPos.x * zoom + pan.x + 250),
-                            top: linkTargetPos.y * zoom + pan.y + 100
-                        }}
-                    >
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center justify-between gap-4 mb-2">
-                                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Link to Page</span>
-                                <button onClick={() => { setLinkSourceId(null); setLinkTargetPos(null); }} className="text-white/20 hover:text-white/60">
-                                    <XIcon className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                            {pages.map((page) => (
-                                <button
-                                    key={page.id}
-                                    onClick={() => {
-                                        if (linkSourceId) {
-                                            onAddWiring(linkSourceId, page.id);
-                                        }
-                                        setLinkSourceId(null);
-                                        setLinkTargetPos(null);
-                                    }}
-                                    className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/5 text-left transition-all group"
-                                >
-                                    <FileText className="w-4 h-4 text-white/20 group-hover:text-blue-400" />
-                                    <span className="text-xs text-white/60 group-hover:text-white">{page.name}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )
-            }
 
             {/* Discard Confirmation Modal */}
             {
@@ -1131,11 +1012,11 @@ export function StudioCanvas({
                 )
             }
 
-            {/* Add Page Modal */}
+            {/* Add Component Modal */}
             {
-                showAddPageModal && (
+                showAddComponentModal && (
                     <div className="absolute inset-0 z-[400] flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowAddPageModal(false)} />
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowAddComponentModal(false)} />
                         <div className="relative w-full max-w-sm glass-card p-8 border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200">
                             <div className="flex flex-col gap-6">
                                 <div className="flex items-center gap-4">
@@ -1143,45 +1024,45 @@ export function StudioCanvas({
                                         <Plus className="w-6 h-6 text-blue-400" />
                                     </div>
                                     <div className="space-y-1">
-                                        <h2 className="text-xl font-bold text-white tracking-tight">Add New Page</h2>
-                                        <p className="text-xs text-white/40">Give your page a descriptive name</p>
+                                        <h2 className="text-xl font-bold text-white tracking-tight">Add New Component</h2>
+                                        <p className="text-xs text-white/40">Give your component a descriptive name</p>
                                     </div>
                                 </div>
 
                                 <input
                                     autoFocus
                                     type="text"
-                                    value={newPageName}
-                                    onChange={(e) => setNewPageName(e.target.value)}
+                                    value={newComponentName}
+                                    onChange={(e) => setNewComponentName(e.target.value)}
                                     onKeyDown={(e) => {
-                                        if (e.key === "Enter" && newPageName.trim()) {
-                                            onAddPage(newPageName.trim());
-                                            setNewPageName("");
-                                            setShowAddPageModal(false);
+                                        if (e.key === "Enter" && newComponentName.trim()) {
+                                            onAddComponent(newComponentName.trim());
+                                            setNewComponentName("");
+                                            setShowAddComponentModal(false);
                                         }
-                                        if (e.key === "Escape") setShowAddPageModal(false);
+                                        if (e.key === "Escape") setShowAddComponentModal(false);
                                     }}
-                                    placeholder="e.g., About Us, Contact, Dashboard"
+                                    placeholder="e.g., Header, Card, HeroSection"
                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20"
                                 />
 
                                 <div className="flex gap-3">
                                     <button
-                                        onClick={() => setShowAddPageModal(false)}
+                                        onClick={() => setShowAddComponentModal(false)}
                                         className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all"
                                     >
                                         Cancel
                                     </button>
                                     <button
-                                        disabled={!newPageName.trim()}
+                                        disabled={!newComponentName.trim()}
                                         onClick={() => {
-                                            onAddPage(newPageName.trim());
-                                            setNewPageName("");
-                                            setShowAddPageModal(false);
+                                            onAddComponent(newComponentName.trim());
+                                            setNewComponentName("");
+                                            setShowAddComponentModal(false);
                                         }}
                                         className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-blue-500/20 transition-all font-mono"
                                     >
-                                        Create Page
+                                        Create Component
                                     </button>
                                 </div>
                             </div>
